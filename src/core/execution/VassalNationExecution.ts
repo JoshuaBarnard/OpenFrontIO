@@ -1,4 +1,5 @@
 import { Execution, Game, Player, PlayerID, UnitType } from "../game/Game";
+import { areDiplomaticallyFriendly } from "../game/Vassal";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { ConstructionExecution } from "./ConstructionExecution";
@@ -226,7 +227,7 @@ export class VassalNationExecution implements Execution {
       staleAlliance.expire();
     }
 
-    if (!this.vassal.isFriendly(attacker)) {
+    if (!areDiplomaticallyFriendly(this.mg, this.vassal, attacker)) {
       if (this.attackBehavior.sendAttack(attacker, true)) return true;
     }
 
@@ -254,7 +255,7 @@ export class VassalNationExecution implements Execution {
     let strongestBorderEnemy = 0;
     for (const neighbor of this.vassal.nearby()) {
       if (!neighbor.isPlayer()) continue;
-      if (this.vassal.isFriendly(neighbor)) continue;
+      if (areDiplomaticallyFriendly(this.mg, this.vassal, neighbor)) continue;
       if (!this.vassal.sharesBorderWith(neighbor)) continue;
       strongestBorderEnemy = Math.max(
         strongestBorderEnemy,
@@ -264,7 +265,14 @@ export class VassalNationExecution implements Execution {
 
     const incomingToVassal = this.vassal
       .incomingAttacks()
-      .filter((attack) => !this.vassal.isFriendly(attack.attacker()))
+      .filter(
+        (attack) =>
+          !areDiplomaticallyFriendly(
+            this.mg,
+            this.vassal,
+            attack.attacker(),
+          ),
+      )
       .reduce((sum, attack) => sum + attack.troops(), 0);
 
     const defensiveReserve = Math.max(
@@ -299,11 +307,15 @@ export class VassalNationExecution implements Execution {
 
     const traitor = this.attackBehavior.getNeighborTraitorToAttack();
     if (traitor !== null && traitor.id() !== this.founderID) {
-      if (this.random.chance(this.vassal.isFriendly(traitor) ? 6 : 3)) {
+      if (
+        !areDiplomaticallyFriendly(this.mg, this.vassal, traitor) &&
+        this.random.chance(3)
+      ) {
         if (this.attackBehavior.sendAttack(traitor)) return;
       }
     }
 
+    // Unclaimed land is the safest expansion and remains the first choice.
     if (this.neighborsTerraNullius) {
       if (this.vassal.nearby().some((neighbor) => !neighbor.isPlayer())) {
         if (this.attackBehavior.sendAttack(this.mg.terraNullius())) return;
@@ -312,7 +324,41 @@ export class VassalNationExecution implements Execution {
       }
     }
 
+    // Once neutral expansion cannot be launched, actively seek territory from
+    // realms that are not friendly with the owner. Shared-border enemies are
+    // tried first, then other hostile players; sendAttack can use transport
+    // ships for the latter when a route exists. Reserve/strength checks remain
+    // inside AiAttackBehavior, so this does not make vassals suicidal.
+    if (this.attackOwnerHostileRealm()) return;
+
     this.attackBehavior.attackRandomTarget();
+  }
+
+  private attackOwnerHostileRealm(): boolean {
+    if (this.attackBehavior === null) return false;
+
+    const hostile = this.mg.players().filter(
+      (candidate) =>
+        candidate !== this.vassal &&
+        candidate.id() !== this.founderID &&
+        !areDiplomaticallyFriendly(this.mg, this.vassal, candidate),
+    );
+    if (hostile.length === 0) return false;
+
+    const bordering = hostile.filter((candidate) =>
+      this.vassal.sharesBorderWith(candidate),
+    );
+    const borderingSet = new Set(bordering);
+    const distant = hostile.filter((candidate) => !borderingSet.has(candidate));
+    const candidates = [
+      ...this.random.shuffleArray(bordering),
+      ...this.random.shuffleArray(distant),
+    ];
+
+    for (const candidate of candidates) {
+      if (this.attackBehavior.sendAttack(candidate)) return true;
+    }
+    return false;
   }
 
   isActive(): boolean {
