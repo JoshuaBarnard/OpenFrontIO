@@ -430,10 +430,14 @@ function createMenuElements(
     )
     .map((item: BuildItemDisplay) => {
       return {
-        id: `${elementIdPrefix}_${item.unitType}`,
-        name: item.key
-          ? item.key.replace("unit_type.", "")
-          : item.unitType.toString(),
+        id: item.vassalFounder
+          ? `${elementIdPrefix}_vassal_estate`
+          : `${elementIdPrefix}_${item.unitType}`,
+        name: item.vassalFounder
+          ? "vassal_estate"
+          : item.key
+            ? item.key.replace("unit_type.", "")
+            : item.unitType.toString(),
         disabled: (p: MenuElementParams) =>
           !p.buildMenu.canBuildOrUpgrade(item),
         color: (p: MenuElementParams) =>
@@ -460,6 +464,8 @@ function createMenuElements(
           (tooltipItem): tooltipItem is TooltipItem => tooltipItem !== null,
         ),
         subMenu: (params: MenuElementParams) => {
+          if (item.vassalFounder) return [];
+
           const buildableUnit = params.playerActions.buildableUnits.find(
             (bu) => bu.type === item.unitType,
           );
@@ -560,6 +566,17 @@ function createMenuElements(
           if (buildableUnit === undefined) {
             return;
           }
+
+          if (item.vassalFounder) {
+            if (buildableUnit.canBuild !== false) {
+              params.eventBus.emit(
+                new BuildUnitIntentEvent(UnitType.City, params.tile, true),
+              );
+            }
+            params.closeMenu();
+            return;
+          }
+
           if (params.buildMenu.canBuildOrUpgrade(item)) {
             if (buildableUnit.canUpgrade !== false) {
               params.eventBus.emit(
