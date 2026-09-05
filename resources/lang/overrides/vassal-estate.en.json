@@ -1,0 +1,8 @@
+{
+  "build_menu": {
+    "desc": {
+      "vassal_estate": "Creates an allied vassal from nearby territory. Vassals defend you when attacked and can send troops when they cannot reach your attacker."
+    },
+    "vassal_estate": "Vassal Estate"
+  }
+}
