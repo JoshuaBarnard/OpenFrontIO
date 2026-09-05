@@ -1,8 +1,10 @@
-import { Execution, Game, Player, PlayerID } from "../game/Game";
+import { Execution, Game, Player, PlayerID, UnitType } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
+import { ConstructionExecution } from "./ConstructionExecution";
 import { NationEmojiBehavior } from "./nation/NationEmojiBehavior";
 import { NationStructureBehavior } from "./nation/NationStructureBehavior";
+import { randTerritoryTileArray } from "./nation/NationUtils";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 
 /**
@@ -82,8 +84,15 @@ export class VassalNationExecution implements Execution {
         this.vassal,
       );
 
-      // Give the new vassal one immediate useful decision. Founder defence
-      // wins over expansion if the founder is already under attack.
+      // Newly-founded vassals begin with one city in a compact estate. Normal
+      // Nation ratios round 0.75 structures-per-city down to zero, while normal
+      // city spacing can make a second city impossible until the realm expands.
+      // Bootstrap one useful economic structure immediately so a funded vassal
+      // cannot get stuck forever as a one-city nation.
+      this.handleVassalStructures();
+
+      // Give the new vassal one immediate useful military decision too.
+      // Founder defence wins over expansion if the founder is already attacked.
       if (!this.defendFounder()) {
         this.attackBehavior.sendAttack(this.mg.terraNullius());
       }
@@ -100,19 +109,85 @@ export class VassalNationExecution implements Execution {
         (this.attackTick + Math.floor((this.attackRate * 2) / 3)) %
         this.attackRate;
       if (offset === oneThird || offset === twoThirds) {
-        this.structureBehavior.handleStructures();
+        this.handleVassalStructures();
       }
       return;
     }
 
-    // Vassals use the real Nation structure planner, so they can build and
-    // upgrade Cities, Factories, Ports, SAMs and Missile Silos like nations.
-    this.structureBehavior.handleStructures();
+    // Vassals use the real Nation structure planner, so after the compact-estate
+    // bootstrap they build and upgrade Cities, Factories, Ports, SAMs and
+    // Missile Silos using the same strategy as ordinary nations.
+    this.handleVassalStructures();
 
     // An attack on the founder takes priority over unrelated aggression.
     if (this.defendFounder()) return;
 
     this.maybeAttack();
+  }
+
+  /**
+   * Prevent the initial radius-20 estate from deadlocking the standard nation
+   * structure ratios. A one-city vassal gets one Factory and, when possible,
+   * one Port before falling back to the normal NationStructureBehavior.
+   */
+  private handleVassalStructures(): boolean {
+    if (this.bootstrapCoreStructure()) return true;
+    return this.structureBehavior?.handleStructures() ?? false;
+  }
+
+  private bootstrapCoreStructure(): boolean {
+    // If the capital has been destroyed, let normal Nation AI prioritize
+    // rebuilding a City rather than trying to create supporting structures.
+    if (this.vassal.units(UnitType.City).length === 0) return false;
+
+    const bootstrapOrder = [UnitType.Factory, UnitType.Port] as const;
+    for (const type of bootstrapOrder) {
+      if (this.mg.config().isUnitDisabled(type)) continue;
+      // units() includes under-construction structures, preventing duplicate
+      // bootstrap queues while the first building is still being constructed.
+      if (this.vassal.units(type).length > 0) continue;
+
+      const cost = this.mg.unitInfo(type).cost(this.mg, this.vassal);
+      if (this.vassal.gold() < cost) continue;
+
+      const tile = this.findBootstrapStructureTile(type);
+      if (tile === null) continue;
+
+      this.mg.addExecution(new ConstructionExecution(this.vassal, type, tile));
+      return true;
+    }
+
+    return false;
+  }
+
+  private findBootstrapStructureTile(type: UnitType): number | null {
+    if (type === UnitType.Port) {
+      // Ports need shore territory. Sample a larger set than normal because a
+      // fresh vassal estate is compact and can have very few legal shore tiles.
+      const borderTiles = this.random
+        .shuffleArray(Array.from(this.vassal.borderTiles()))
+        .slice(0, 250);
+      for (const tile of borderTiles) {
+        if (!this.mg.isShore(tile)) continue;
+        const buildTile = this.vassal.canBuild(type, tile);
+        if (buildTile !== false) return buildTile;
+      }
+      return null;
+    }
+
+    // Normal NationStructureBehavior samples 25 tiles. A compact estate has a
+    // much higher chance of those landing near the capital/border, so use a
+    // broader sample for the one-time Factory bootstrap.
+    for (const tile of randTerritoryTileArray(
+      this.random,
+      this.mg,
+      this.vassal,
+      120,
+    )) {
+      const buildTile = this.vassal.canBuild(type, tile);
+      if (buildTile !== false) return buildTile;
+    }
+    return null;
   }
 
   private founder(): Player | null {
