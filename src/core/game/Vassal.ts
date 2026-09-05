@@ -36,10 +36,7 @@ export function isVassalPlayerID(playerID: PlayerID): boolean {
   return vassalOwnerIDFromPlayerID(playerID) !== null;
 }
 
-/**
- * Resolve the player whose diplomacy governs this realm. Normal players and
- * nations govern themselves; a vassal is governed by its recorded owner.
- */
+/** Resolve the player whose diplomacy governs this realm. */
 export function vassalDiplomaticPrincipal(
   game: Pick<Game, "hasPlayer" | "player">,
   player: Player,
@@ -51,12 +48,8 @@ export function vassalDiplomaticPrincipal(
 
 /**
  * Friendship for combat/diplomacy purposes, including vassal ownership.
- *
- * Direct friendship is checked first so team/alliance state still behaves
- * normally. If either side is a vassal, their owner is then used as the
- * diplomatic principal. This is intentionally used by attack and transport
- * execution as well as vassal AI, so an owner's new ally is protected even
- * during the short tick before the explicit mirrored vassal alliance appears.
+ * Used by land attacks, naval attacks, the UI and vassal AI so a new owner
+ * alliance protects the vassal before its explicit mirrored alliance appears.
  */
 export function areDiplomaticallyFriendly(
   game: Pick<Game, "hasPlayer" | "player">,
