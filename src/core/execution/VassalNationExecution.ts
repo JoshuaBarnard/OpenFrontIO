@@ -1,10 +1,4 @@
-import {
-  Execution,
-  Game,
-  Player,
-  PlayerID,
-  Structures,
-} from "../game/Game";
+import { Execution, Game, Player, PlayerID } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { NationStructureBehavior } from "./nation/NationStructureBehavior";
