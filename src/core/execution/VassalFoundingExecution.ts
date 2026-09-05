@@ -7,17 +7,21 @@ import {
   Structures,
   Unit,
 } from "../game/Game";
+import {
+  makeVassalDisplayName,
+  makeVassalPlayerID,
+} from "../game/Vassal";
 import { CityExecution } from "./CityExecution";
 import { PlayerExecution } from "./PlayerExecution";
-import { TribeExecution } from "./TribeExecution";
 import { VassalAllianceExecution } from "./VassalAllianceExecution";
+import { VassalNationExecution } from "./VassalNationExecution";
 
 /** Radius, in map tiles, transferred from the founder to a new vassal. */
 export const VASSAL_FOUNDING_RADIUS = 20;
 
 /**
  * Converts the completed founding city and nearby founder-owned territory into
- * a new autonomous bot player. Enemy and neutral territory is never touched.
+ * a new autonomous nation vassal. Enemy and neutral territory is never touched.
  */
 export class VassalFoundingExecution implements Execution {
   private active = true;
@@ -48,18 +52,30 @@ export class VassalFoundingExecution implements Execution {
       return;
     }
 
-    const vassalID = `vassal-${this.founder.id()}-${this.capital.id()}`;
+    const vassalID = makeVassalPlayerID(this.founder.id(), this.capital.id());
     if (this.mg.hasPlayer(vassalID)) {
       return;
     }
 
-    const vassal = this.mg.addPlayer(
-      new PlayerInfo(
-        `Vassal ${this.capital.id()}`,
-        PlayerType.Bot,
-        null,
-        vassalID,
-      ),
+    const vassalInfo = new PlayerInfo(
+      makeVassalDisplayName(this.founder.displayName()),
+      PlayerType.Nation,
+      null,
+      vassalID,
+    );
+
+    // GameImpl already supports an explicit team argument even though the
+    // public Game interface still exposes the one-argument form. Preserve the
+    // founder's team so a dynamically-created Nation never falls into a
+    // generic Nation/Bot team in team modes.
+    const addPlayerWithTeam = this.mg.addPlayer as unknown as (
+      playerInfo: PlayerInfo,
+      team: ReturnType<Player["team"]>,
+    ) => Player;
+    const vassal = addPlayerWithTeam.call(
+      this.mg,
+      vassalInfo,
+      this.founder.team(),
     );
 
     const transferred = new Set<number>();
@@ -108,11 +124,11 @@ export class VassalFoundingExecution implements Execution {
     const allianceRequest = this.founder.createAllianceRequest(vassal);
     allianceRequest?.accept();
 
-    // Add the permanent relationship execution before the AI so a restored
-    // alliance is in place before the vassal chooses any targets that tick.
+    // Diplomacy runs before the vassal AI so mirrored alliances are corrected
+    // before the vassal chooses combat targets on a tick.
     this.mg.addExecution(new PlayerExecution(vassal));
     this.mg.addExecution(new VassalAllianceExecution(this.founder, vassal));
-    this.mg.addExecution(new TribeExecution(vassal, this.founder.id()));
+    this.mg.addExecution(new VassalNationExecution(vassal, this.founder.id()));
     this.mg.addExecution(new CityExecution(this.capital));
   }
 
