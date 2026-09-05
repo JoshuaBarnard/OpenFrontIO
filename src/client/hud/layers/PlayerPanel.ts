@@ -12,6 +12,10 @@ import {
   Relation,
 } from "../../../core/game/Game";
 import { TileRef } from "../../../core/game/GameMap";
+import {
+  isVassalPlayerID,
+  vassalOwnerNameFromDisplayName,
+} from "../../../core/game/Vassal";
 import { Emoji, flattenedEmojiTable } from "../../../core/Util";
 import { fetchLobbyListed } from "../../Api";
 import { actionButton } from "../../components/ui/ActionButton";
@@ -24,7 +28,6 @@ import {
 } from "../../InputHandler";
 import {
   PlayerReportedEvent,
-  SendAllianceRequestIntentEvent,
   SendBreakAllianceIntentEvent,
   SendEmbargoAllIntentEvent,
   SendEmbargoIntentEvent,
@@ -39,6 +42,7 @@ import {
   showToast,
   translateText,
 } from "../../Utils";
+import { sendAllianceRequestWithVassalRedirect } from "../../VassalDiplomacy";
 import { GameView, PlayerView } from "../../view";
 import { ChatModal } from "./ChatModal";
 import { EmojiTable } from "./EmojiTable";
@@ -225,7 +229,11 @@ export class PlayerPanel extends LitElement implements Controller {
     other: PlayerView,
   ) {
     e.stopPropagation();
-    this.eventBus.emit(new SendAllianceRequestIntentEvent(myPlayer, other));
+    void sendAllianceRequestWithVassalRedirect(
+      this.eventBus,
+      myPlayer,
+      other,
+    );
     this.hide();
   }
 
@@ -399,24 +407,33 @@ export class PlayerPanel extends LitElement implements Controller {
     this.eventBus.emit(new SwapRocketDirectionEvent(next));
   }
 
-  private identityChipProps(type: PlayerType) {
-    switch (type) {
+  private identityChipProps(player: PlayerView) {
+    const vassalOwner = vassalOwnerNameFromDisplayName(player.displayName());
+    if (isVassalPlayerID(player.id()) && vassalOwner !== null) {
+      return {
+        label: translateText("vassal.owner_chip", { name: vassalOwner }),
+        classes: "border-indigo-300/35 bg-indigo-400/12 text-indigo-100",
+        icon: "👑",
+      };
+    }
+
+    switch (player.type()) {
       case PlayerType.Nation:
         return {
-          labelKey: "player_type.nation",
+          label: translateText("player_type.nation"),
           classes: "border-indigo-400/25 bg-indigo-500/10 text-indigo-200",
           icon: "🏛️",
         };
       case PlayerType.Bot:
         return {
-          labelKey: "player_type.bot",
+          label: translateText("player_type.bot"),
           classes: "border-purple-400/25 bg-purple-500/10 text-purple-200",
           icon: "⚔️",
         };
       case PlayerType.Human:
       default:
         return {
-          labelKey: "player_type.player",
+          label: translateText("player_type.player"),
           classes: "border-zinc-400/20 bg-zinc-500/5 text-zinc-300",
           icon: "👤",
         };
@@ -551,6 +568,7 @@ export class PlayerPanel extends LitElement implements Controller {
 
   private renderRelationPillIfNation(other: PlayerView, my: PlayerView) {
     if (other.type() !== PlayerType.Nation) return html``;
+    if (isVassalPlayerID(other.id())) return html``;
     if (other.isTraitor()) return html``;
     if (my?.isAlliedWith && my.isAlliedWith(other)) return html``;
     if (!this.otherProfile || !my) return html``;
@@ -577,7 +595,7 @@ export class PlayerPanel extends LitElement implements Controller {
     const chip =
       other.type() === PlayerType.Human
         ? null
-        : this.identityChipProps(other.type());
+        : this.identityChipProps(other);
 
     return html`
       <div class="flex items-center gap-2.5 flex-wrap">
@@ -604,13 +622,11 @@ export class PlayerPanel extends LitElement implements Controller {
           ? html`<span
               class=${`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-semibold ${chip.classes}`}
               role="status"
-              aria-label=${translateText(chip.labelKey)}
-              title=${translateText(chip.labelKey)}
+              aria-label=${chip.label}
+              title=${chip.label}
             >
               <span aria-hidden="true" class="leading-none">${chip.icon}</span>
-              <span class="tracking-tight"
-                >${translateText(chip.labelKey)}</span
-              >
+              <span class="tracking-tight">${chip.label}</span>
             </span>`
           : html``}
       </div>
@@ -819,7 +835,9 @@ export class PlayerPanel extends LitElement implements Controller {
       other === myPlayer
         ? this.actions?.canSendEmojiAllPlayers
         : this.actions?.interaction?.canSendEmoji;
-    const canBreakAlliance = this.actions?.interaction?.canBreakAlliance;
+    const isVassal = isVassalPlayerID(other.id());
+    const canBreakAlliance =
+      !isVassal && this.actions?.interaction?.canBreakAlliance;
     const canTarget = this.actions?.interaction?.canTarget;
     const canEmbargo = this.actions?.interaction?.canEmbargo;
 
