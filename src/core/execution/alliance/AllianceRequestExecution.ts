@@ -7,6 +7,7 @@ import {
   PlayerID,
   UnitType,
 } from "../../game/Game";
+import { vassalOwnerIDFromPlayerID } from "../../game/Vassal";
 import { wouldNukeBreakAlliance } from "../Util";
 
 export class AllianceRequestExecution implements Execution {
@@ -21,10 +22,32 @@ export class AllianceRequestExecution implements Execution {
 
   init(mg: Game, ticks: number): void {
     this.mg = mg;
+
+    // Vassals never own diplomacy. This also blocks old/malicious clients and
+    // AI paths from making a vassal originate an independent request.
+    if (vassalOwnerIDFromPlayerID(this.requestor.id()) !== null) {
+      console.warn("vassals cannot send alliance requests");
+      this.active = false;
+      return;
+    }
+
+    // Requests aimed at a vassal belong to its owner. Modern clients ask for
+    // confirmation before sending; this redirect is the simulation-side rule
+    // that guarantees there can never be a direct vassal alliance request.
+    const vassalOwnerID = vassalOwnerIDFromPlayerID(this.recipientID);
+    if (vassalOwnerID !== null) {
+      if (!mg.hasPlayer(vassalOwnerID) || vassalOwnerID === this.requestor.id()) {
+        this.active = false;
+        return;
+      }
+      this.recipientID = vassalOwnerID;
+    }
+
     if (!mg.hasPlayer(this.recipientID)) {
       console.warn(
         `AllianceRequestExecution recipient ${this.recipientID} not found`,
       );
+      this.active = false;
       return;
     }
 

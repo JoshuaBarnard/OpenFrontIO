@@ -7,6 +7,7 @@ import { formatDebugTranslation } from "./Utils";
 
 import en from "../../resources/lang/en.json";
 import metadata from "../../resources/lang/metadata.json";
+import vassalEstateEn from "../../resources/lang/overrides/vassal-estate.en.json";
 
 type LanguageMetadata = {
   code: string;
@@ -115,6 +116,7 @@ export class LangSelector extends LitElement {
 
     if (lang === "en") {
       const flat = flattenTranslations(en);
+      Object.assign(flat, flattenTranslations(vassalEstateEn));
       this.languageCache.set(lang, flat);
       return flat;
     }

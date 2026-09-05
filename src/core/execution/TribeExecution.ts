@@ -1,4 +1,4 @@
-﻿import { Execution, Game, Player, Structures } from "../game/Game";
+import { Execution, Game, Player, Structures } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";

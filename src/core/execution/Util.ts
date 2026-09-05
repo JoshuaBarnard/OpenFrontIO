@@ -3,6 +3,7 @@ import { NukeMagnitude } from "../configuration/Config";
 import { Game, Player, Structures } from "../game/Game";
 import { euclDistFN, GameMap, TileRef } from "../game/GameMap";
 import { ReadonlyTileSet } from "../game/TileSet";
+import { vassalOwnerIDFromPlayerID } from "../game/Vassal";
 
 export interface NukeBlastParams {
   gm: GameMap;
@@ -44,6 +45,28 @@ export interface NukeAllianceCheckParams {
   threshold: number;
 }
 
+/**
+ * Resolve a territory/structure owner's small ID to the player whose diplomacy
+ * governs that realm. For normal players this is a no-op; for vassals it is
+ * the owner's small ID. The same helper runs in simulation and client preview
+ * so nuke warnings and actual betrayal consequences cannot disagree.
+ */
+function diplomaticSmallID(game: Game | GameView, smallID: number): number {
+  const player = game.playerBySmallID(smallID);
+  if (!player.isPlayer()) return smallID;
+
+  const ownerID = vassalOwnerIDFromPlayerID(player.id());
+  if (ownerID === null) return smallID;
+
+  try {
+    return game.player(ownerID).smallID();
+  } catch {
+    // During a partial client update the owner may not have materialized yet.
+    // Falling back to the vassal ID is safer than failing the whole preview.
+    return smallID;
+  }
+}
+
 // Checks if nuking this tile would break an alliance.
 // Returns true if either:
 // 1. The weighted tile count for any ally exceeds the threshold
@@ -57,13 +80,15 @@ export function wouldNukeBreakAlliance(
     return false;
   }
 
-  // Check if any allied structure would be destroyed
+  // Check if any allied structure would be destroyed. Vassal structures count
+  // as their owner's structures for diplomacy purposes.
   const wouldDestroyAlliedStructure = game.anyUnitNearby(
     targetTile,
     magnitude.outer,
     Structures.types,
     (unit) =>
-      unit.owner().isPlayer() && allySmallIds.has(unit.owner().smallID()),
+      unit.owner().isPlayer() &&
+      allySmallIds.has(diplomaticSmallID(game, unit.owner().smallID())),
   );
   if (wouldDestroyAlliedStructure) return true;
 
@@ -77,10 +102,13 @@ export function wouldNukeBreakAlliance(
     magnitude.outer,
     (tile: TileRef, d2: number) => {
       const ownerSmallId = game.ownerID(tile);
-      if (ownerSmallId > 0 && allySmallIds.has(ownerSmallId)) {
+      if (ownerSmallId > 0) {
+        const diplomaticID = diplomaticSmallID(game, ownerSmallId);
+        if (!allySmallIds.has(diplomaticID)) return true;
+
         const weight = d2 <= inner2 ? 1 : 0.5;
-        const newCount = (allyTileCounts.get(ownerSmallId) ?? 0) + weight;
-        allyTileCounts.set(ownerSmallId, newCount);
+        const newCount = (allyTileCounts.get(diplomaticID) ?? 0) + weight;
+        allyTileCounts.set(diplomaticID, newCount);
 
         if (newCount > threshold) {
           result = true;
@@ -102,8 +130,8 @@ export function listNukeBreakAlliance(
 ): Set<number> {
   const { game, targetTile, magnitude, threshold } = params;
 
-  // Collect all players that should have alliance broken:
-  // either exceeds tile threshold OR has a structure in blast radius
+  // Collect all diplomatic principals that should have alliance broken:
+  // either exceeds tile threshold OR has a structure in blast radius.
   const playersToBreakAllianceWith = new Set<number>();
 
   // compute tile breakage threshold
@@ -114,15 +142,21 @@ export function listNukeBreakAlliance(
   });
   for (const [playerSmallId, totalWeight] of blastCounts) {
     if (totalWeight > threshold) {
-      playersToBreakAllianceWith.add(playerSmallId);
+      playersToBreakAllianceWith.add(
+        diplomaticSmallID(game, playerSmallId),
+      );
     }
   }
 
-  // Also check if any allied structures would be destroyed
+  // Also check if any structures would be destroyed. A vassal structure maps
+  // to the owner, so nuking a vassal breaks/angers the owner's diplomacy rather
+  // than only breaking a mirrored alliance that would be restored next tick.
   game
     .nearbyUnits(targetTile, magnitude.outer, Structures.types)
     .forEach(({ unit }) =>
-      playersToBreakAllianceWith.add(unit.owner().smallID()),
+      playersToBreakAllianceWith.add(
+        diplomaticSmallID(game, unit.owner().smallID()),
+      ),
     );
 
   return playersToBreakAllianceWith;

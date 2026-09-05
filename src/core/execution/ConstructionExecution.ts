@@ -8,6 +8,7 @@ import { MissileSiloExecution } from "./MissileSiloExecution";
 import { NukeExecution } from "./NukeExecution";
 import { PortExecution } from "./PortExecution";
 import { SAMLauncherExecution } from "./SAMLauncherExecution";
+import { VassalFoundingExecution } from "./VassalFoundingExecution";
 import { WarshipExecution } from "./WarshipExecution";
 
 export class ConstructionExecution implements Execution {
@@ -145,7 +146,17 @@ export class ConstructionExecution implements Execution {
         );
         break;
       case UnitType.City:
-        this.mg.addExecution(new CityExecution(this.structure!));
+        if (this.rocketDirectionUp) {
+          // The existing optional build flag is unused by cities. The client
+          // sets it only for the Vassal Estate build entry, letting the estate
+          // reuse the normal City construction/renderer pipeline without
+          // expanding the global UnitType enum.
+          this.mg.addExecution(
+            new VassalFoundingExecution(player, this.structure!),
+          );
+        } else {
+          this.mg.addExecution(new CityExecution(this.structure!));
+        }
         break;
       case UnitType.Factory:
         this.mg.addExecution(new FactoryExecution(this.structure!));

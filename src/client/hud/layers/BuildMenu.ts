@@ -37,6 +37,7 @@ const atomBombIcon = assetUrl("images/NukeIconWhite.svg");
 const portIcon = assetUrl("images/PortIcon.svg");
 const samlauncherIcon = assetUrl("images/SamLauncherIconWhite.svg");
 const shieldIcon = assetUrl("images/ShieldIconWhite.svg");
+const vassalEstateIcon = assetUrl("images/AllianceIconWhite.svg");
 
 export interface BuildItemDisplay {
   unitType: PlayerBuildableUnitType;
@@ -44,6 +45,8 @@ export interface BuildItemDisplay {
   description?: string;
   key?: string;
   countable?: boolean;
+  /** A City build that founds a vassal instead of becoming a normal City. */
+  vassalFounder?: boolean;
 }
 
 export const buildTable: BuildItemDisplay[][] = [
@@ -110,6 +113,14 @@ export const buildTable: BuildItemDisplay[][] = [
       description: "build_menu.desc.city",
       key: "unit_type.city",
       countable: true,
+    },
+    {
+      unitType: UnitType.City,
+      icon: vassalEstateIcon,
+      description: "vassal.estate_desc",
+      key: "vassal.estate",
+      countable: false,
+      vassalFounder: true,
     },
     {
       unitType: UnitType.Factory,
@@ -361,7 +372,9 @@ export class BuildMenu extends LitElement implements Controller {
       return false;
     }
     const unit = this.playerBuildables.find((u) => u.type === item.unitType);
-    return unit ? unit.canBuild !== false || unit.canUpgrade !== false : false;
+    if (!unit) return false;
+    if (item.vassalFounder) return unit.canBuild !== false;
+    return unit.canBuild !== false || unit.canUpgrade !== false;
   }
 
   public cost(item: BuildItemDisplay): Gold {
@@ -382,7 +395,21 @@ export class BuildMenu extends LitElement implements Controller {
     return player.totalUnitLevels(item.unitType).toString();
   }
 
-  public sendBuildOrUpgrade(buildableUnit: BuildableUnit, tile: TileRef): void {
+  public sendBuildOrUpgrade(
+    buildableUnit: BuildableUnit,
+    tile: TileRef,
+    item?: BuildItemDisplay,
+  ): void {
+    if (item?.vassalFounder) {
+      if (buildableUnit.canBuild !== false) {
+        this.eventBus.emit(
+          new BuildUnitIntentEvent(UnitType.City, tile, true),
+        );
+      }
+      this.hideMenu();
+      return;
+    }
+
     if (buildableUnit.canUpgrade !== false) {
       this.eventBus.emit(
         new SendUpgradeStructureIntentEvent(
@@ -419,14 +446,19 @@ export class BuildMenu extends LitElement implements Controller {
                 if (buildableUnit === undefined) {
                   return html``;
                 }
-                const enabled =
-                  buildableUnit.canBuild !== false ||
-                  buildableUnit.canUpgrade !== false;
+                const enabled = item.vassalFounder
+                  ? buildableUnit.canBuild !== false
+                  : buildableUnit.canBuild !== false ||
+                    buildableUnit.canUpgrade !== false;
                 return html`
                   <button
                     class="build-button"
                     @click=${() =>
-                      this.sendBuildOrUpgrade(buildableUnit, this.clickedTile)}
+                      this.sendBuildOrUpgrade(
+                        buildableUnit,
+                        this.clickedTile,
+                        item,
+                      )}
                     ?disabled=${!enabled}
                     title=${!enabled
                       ? translateText("build_menu.not_enough_money")

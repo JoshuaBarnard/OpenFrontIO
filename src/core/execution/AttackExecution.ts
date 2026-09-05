@@ -14,6 +14,10 @@ import {
   UnitType,
 } from "../game/Game";
 import { GameMap, TileRef } from "../game/GameMap";
+import {
+  areDiplomaticallyFriendly,
+  vassalOwnerIDFromPlayerID,
+} from "../game/Vassal";
 import { PseudoRandom } from "../PseudoRandom";
 import { assertNever } from "../Util";
 import { FlatBinaryHeap } from "./utils/FlatBinaryHeap"; // adjust path if needed
@@ -82,12 +86,14 @@ export class AttackExecution implements Execution {
       return;
     }
 
-    // ALLIANCE CHECK — block attacks on friendly (ally or same team)
+    // ALLIANCE CHECK — block attacks on direct friends and on vassal realms
+    // whose owners are friendly. This is stronger than waiting for the mirrored
+    // alliance to appear and closes the one-tick diplomacy sync gap.
     if (this.target.isPlayer()) {
       const targetPlayer = this.target as Player;
-      if (this._owner.isFriendly(targetPlayer)) {
+      if (areDiplomaticallyFriendly(this.mg, this._owner, targetPlayer)) {
         console.warn(
-          `${this._owner.displayName()} cannot attack ${targetPlayer.displayName()} because they are friendly (allied or same team)`,
+          `${this._owner.displayName()} cannot attack ${targetPlayer.displayName()} because their realms are friendly`,
         );
         this.active = false;
         return;
@@ -165,6 +171,9 @@ export class AttackExecution implements Execution {
     }
 
     if (this.target.isPlayer()) {
+      const targetPlayer = this.target as Player;
+      this.notifyVassalOwnerOfAttack(targetPlayer);
+
       const difficulty = this.mg.config().gameConfig().difficulty;
       let relationChange: number;
       switch (difficulty) {
@@ -185,6 +194,35 @@ export class AttackExecution implements Execution {
       }
       this.target.updateRelation(this._owner, relationChange);
     }
+  }
+
+  private notifyVassalOwnerOfAttack(targetPlayer: Player): void {
+    // Naval invasions alert the owner when the transport ship is launched.
+    // The landing AttackExecution carries sourceTile, so suppress a duplicate
+    // notification when that same invasion reaches shore.
+    if (this.sourceTile !== null) return;
+
+    const ownerID = vassalOwnerIDFromPlayerID(targetPlayer.id());
+    if (ownerID === null || !this.mg.hasPlayer(ownerID)) return;
+
+    const owner = this.mg.player(ownerID);
+    if (!owner.isAlive() || owner === this._owner) return;
+
+    // One highlighted notification per newly-started attack. focusPlayerID
+    // points at the aggressor so clicking the event takes the owner straight
+    // to the threat.
+    this.mg.displayMessage(
+      "vassal.under_attack",
+      MessageType.ATTACK_REQUEST,
+      owner.id(),
+      undefined,
+      {
+        vassal: targetPlayer.displayName(),
+        name: this._owner.displayName(),
+      },
+      undefined,
+      this._owner.id(),
+    );
   }
 
   private refreshToConquer() {
@@ -259,8 +297,12 @@ export class AttackExecution implements Execution {
       return;
     }
 
-    if (targetPlayer && this._owner.isFriendly(targetPlayer)) {
-      // In this case a new alliance was created AFTER the attack started.
+    if (
+      targetPlayer &&
+      areDiplomaticallyFriendly(this.mg, this._owner, targetPlayer)
+    ) {
+      // A direct alliance or owner-level vassal alliance was created AFTER the
+      // attack started. Retreat immediately rather than waiting for mirroring.
       this.retreat();
       return;
     }

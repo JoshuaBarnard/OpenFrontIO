@@ -2,7 +2,6 @@ import { EventBus } from "../../../core/EventBus";
 import { TileRef } from "../../../core/game/GameMap";
 import {
   SendAllianceExtensionIntentEvent,
-  SendAllianceRequestIntentEvent,
   SendAttackIntentEvent,
   SendBoatAttackIntentEvent,
   SendBreakAllianceIntentEvent,
@@ -15,6 +14,7 @@ import {
   SendTargetPlayerIntentEvent,
 } from "../../Transport";
 import { UIState } from "../../UIState";
+import { sendAllianceRequestWithVassalRedirect } from "../../VassalDiplomacy";
 import { PlayerView } from "../../view";
 
 export class PlayerActionHandler {
@@ -53,7 +53,11 @@ export class PlayerActionHandler {
   }
 
   handleAllianceRequest(player: PlayerView, recipient: PlayerView) {
-    this.eventBus.emit(new SendAllianceRequestIntentEvent(player, recipient));
+    void sendAllianceRequestWithVassalRedirect(
+      this.eventBus,
+      player,
+      recipient,
+    );
   }
 
   handleExtendAlliance(recipient: PlayerView) {

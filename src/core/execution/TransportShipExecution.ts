@@ -12,6 +12,10 @@ import {
 import { TileRef } from "../game/GameMap";
 import { MotionPlanRecord } from "../game/MotionPlans";
 import { targetTransportTile } from "../game/TransportShipUtils";
+import {
+  areDiplomaticallyFriendly,
+  vassalOwnerIDFromPlayerID,
+} from "../game/Vassal";
 import { WaterPathFinder } from "../pathfinding/PathFinder";
 import { PathStatus } from "../pathfinding/types";
 import { AttackExecution } from "./AttackExecution";
@@ -81,6 +85,23 @@ export class TransportShipExecution implements Execution {
       return;
     }
 
+    if (this.target === this.attacker) {
+      this.active = false;
+      return;
+    }
+
+    // Resolve vassal diplomacy through the owner before a ship is created.
+    // This closes the same newly-created-alliance sync gap as AttackExecution,
+    // instead of allowing a boat to sail toward an owner's ally and only be
+    // rejected after it arrives.
+    if (
+      this.target.isPlayer() &&
+      areDiplomaticallyFriendly(this.mg, this.attacker, this.target)
+    ) {
+      this.active = false;
+      return;
+    }
+
     if (this.target.isPlayer()) {
       const targetPlayer = this.target as Player;
       if (
@@ -89,11 +110,6 @@ export class TransportShipExecution implements Execution {
       ) {
         this.rejectIncomingAllianceRequests(targetPlayer);
       }
-    }
-
-    if (this.target === this.attacker) {
-      this.active = false;
-      return;
     }
 
     if (this.target.isPlayer() && !this.attacker.canAttackPlayer(this.target)) {
@@ -149,7 +165,7 @@ export class TransportShipExecution implements Execution {
     this.mg.recordMotionPlan(motionPlan);
     this.motionPlanDst = this.dst;
 
-    // Notify the target player about the incoming naval invasion
+    // Notify the target player about the incoming naval invasion.
     if (this.target.id() !== mg.terraNullius().id()) {
       mg.displayIncomingUnit(
         this.boat.id(),
@@ -158,12 +174,36 @@ export class TransportShipExecution implements Execution {
         MessageType.NAVAL_INVASION_INBOUND,
         this.target.id(),
       );
+      if (this.target.isPlayer()) {
+        this.notifyVassalOwnerOfInvasion(this.target);
+      }
     }
 
     // Record stats
     this.mg
       .stats()
       .boatSendTroops(this.attacker, this.target, this.boat.troops());
+  }
+
+  private notifyVassalOwnerOfInvasion(targetPlayer: Player): void {
+    const ownerID = vassalOwnerIDFromPlayerID(targetPlayer.id());
+    if (ownerID === null || !this.mg.hasPlayer(ownerID)) return;
+
+    const owner = this.mg.player(ownerID);
+    if (!owner.isAlive() || owner === this.attacker) return;
+
+    this.mg.displayMessage(
+      "vassal.under_attack",
+      MessageType.NAVAL_INVASION_INBOUND,
+      owner.id(),
+      undefined,
+      {
+        vassal: targetPlayer.displayName(),
+        name: this.attacker.displayName(),
+      },
+      undefined,
+      this.attacker.id(),
+    );
   }
 
   tick(ticks: number) {
@@ -258,20 +298,30 @@ export class TransportShipExecution implements Execution {
           }
           return;
         }
-        this.attacker.conquer(this.dst);
-        if (this.target.isPlayer() && this.attacker.isFriendly(this.target)) {
+
+        // Diplomacy may have changed while the ship was in transit. Do not
+        // conquer even the landing tile of a newly-friendly realm; return the
+        // troops instead. Owner-level vassal friendship is resolved here too.
+        if (
+          this.target.isPlayer() &&
+          areDiplomaticallyFriendly(this.mg, this.attacker, this.target)
+        ) {
           this.attacker.addTroops(this.boat.troops());
-        } else {
-          this.mg.addExecution(
-            new AttackExecution(
-              this.boat.troops(),
-              this.attacker,
-              this.target.id(),
-              this.dst,
-              false,
-            ),
-          );
+          this.boat.delete(false);
+          this.active = false;
+          return;
         }
+
+        this.attacker.conquer(this.dst);
+        this.mg.addExecution(
+          new AttackExecution(
+            this.boat.troops(),
+            this.attacker,
+            this.target.id(),
+            this.dst,
+            false,
+          ),
+        );
         this.boat.delete(false);
         this.active = false;
 
