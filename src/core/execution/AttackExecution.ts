@@ -197,6 +197,11 @@ export class AttackExecution implements Execution {
   }
 
   private notifyVassalOwnerOfAttack(targetPlayer: Player): void {
+    // Naval invasions alert the owner when the transport ship is launched.
+    // The landing AttackExecution carries sourceTile, so suppress a duplicate
+    // notification when that same invasion reaches shore.
+    if (this.sourceTile !== null) return;
+
     const ownerID = vassalOwnerIDFromPlayerID(targetPlayer.id());
     if (ownerID === null || !this.mg.hasPlayer(ownerID)) return;
 
