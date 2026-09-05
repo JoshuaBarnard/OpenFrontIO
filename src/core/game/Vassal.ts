@@ -54,8 +54,9 @@ export function vassalDiplomaticPrincipal(
  *
  * Direct friendship is checked first so team/alliance state still behaves
  * normally. If either side is a vassal, their owner is then used as the
- * diplomatic principal. This closes the one-tick gap before mirrored vassal
- * alliances have been materialized by VassalAllianceExecution.
+ * diplomatic principal. This is intentionally used by attack and transport
+ * execution as well as vassal AI, so an owner's new ally is protected even
+ * during the short tick before the explicit mirrored vassal alliance appears.
  */
 export function areDiplomaticallyFriendly(
   game: Pick<Game, "hasPlayer" | "player">,
