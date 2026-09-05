@@ -143,7 +143,8 @@ export class UnitDisplay extends LitElement implements Controller {
             "vassal_estate",
             "",
             VASSAL_ESTATE_GHOST,
-            "build_menu.vassal_estate",
+            "vassal.estate",
+            "vassal.estate_desc",
           )}
           ${this.renderUnitItem(
             factoryIcon,
@@ -221,6 +222,7 @@ export class UnitDisplay extends LitElement implements Controller {
     hotkey: string,
     ghostStructure: GhostStructureType = unitType,
     nameKey: string = "unit_type." + structureKey,
+    descriptionKey: string = "build_menu.desc." + structureKey,
   ) {
     if (this.game.config().isUnitDisabled(unitType)) {
       return html``;
@@ -254,9 +256,7 @@ export class UnitDisplay extends LitElement implements Controller {
                     ? ` [${displayHotkey}]`
                     : ""}
                 </div>
-                <div class="p-2">
-                  ${translateText("build_menu.desc." + structureKey)}
-                </div>
+                <div class="p-2">${translateText(descriptionKey)}</div>
                 ${unitType === UnitType.Warship
                   ? html`<div
                       class="mt-1 px-2 py-1 text-[10px] text-cyan-300 border-t border-white/10"
