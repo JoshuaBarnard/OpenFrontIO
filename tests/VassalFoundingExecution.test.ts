@@ -245,6 +245,26 @@ describe("Vassal Estate", () => {
     incomingSpy.mockRestore();
   });
 
+  test("vassal nation initializes attack dependencies before defending founder", () => {
+    const vassal = addProtectedTestVassal();
+    neighbor.conquer(game.ref(11, 10));
+    vassal.setTroops(game.config().maxTroops(vassal));
+    neighbor.setTroops(100);
+
+    const execution = new VassalNationExecution(vassal, founder.id());
+    execution.init(game);
+    const incomingSpy = mockFounderAttack(1_000);
+
+    // AiAttackBehavior requires NationEmojiBehavior whenever a Nation attacks
+    // another player. The vassal controller must wire that dependency before
+    // its immediate founder-defense decision can send a land or boat attack.
+    expect(() => execution.tick(game.ticks())).not.toThrow();
+    expect((execution as any).emojiBehavior).not.toBeNull();
+    expect((execution as any).attackBehavior).not.toBeNull();
+
+    incomingSpy.mockRestore();
+  });
+
   test("unreachable vassal can reinforce founder even when normal donations are disabled", () => {
     const vassal = addProtectedTestVassal();
     const execution = new VassalNationExecution(vassal, founder.id());
