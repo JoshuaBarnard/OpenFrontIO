@@ -117,8 +117,8 @@ export const buildTable: BuildItemDisplay[][] = [
     {
       unitType: UnitType.City,
       icon: vassalEstateIcon,
-      description: "build_menu.desc.vassal_estate",
-      key: "build_menu.vassal_estate",
+      description: "vassal.estate_desc",
+      key: "vassal.estate",
       countable: false,
       vassalFounder: true,
     },
