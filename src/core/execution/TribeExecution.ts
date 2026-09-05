@@ -1,10 +1,4 @@
-import {
-  Execution,
-  Game,
-  Player,
-  PlayerID,
-  Structures,
-} from "../game/Game";
+import { Execution, Game, Player, Structures } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
@@ -16,7 +10,6 @@ export class TribeExecution implements Execution {
   private random: PseudoRandom;
   private mg: Game;
   private neighborsTerraNullius = true;
-  private lastProtectedPlayerAidTick = -Infinity;
 
   private attackBehavior: AiAttackBehavior | null = null;
   private attackRate: number;
@@ -25,10 +18,7 @@ export class TribeExecution implements Execution {
   private reserveRatio: number;
   private expandRatio: number;
 
-  constructor(
-    private tribe: Player,
-    private protectedPlayerID: PlayerID | null = null,
-  ) {
+  constructor(private tribe: Player) {
     this.random = new PseudoRandom(simpleHash(tribe.id()));
     this.attackRate = this.random.nextInt(40, 80);
     this.attackTick = this.random.nextInt(0, this.attackRate);
@@ -64,22 +54,13 @@ export class TribeExecution implements Execution {
         this.expandRatio,
       );
 
-      // Vassals should answer an attack on their founder immediately rather
-      // than spending their first AI action expanding into neutral territory.
-      if (this.protectedPlayerID !== null) {
-        this.maybeAttack();
-        return;
-      }
-
       // Send an attack on the first tick
       this.attackBehavior.sendAttack(this.mg.terraNullius());
       return;
     }
 
     this.acceptAllAllianceRequests();
-    if (this.protectedPlayerID === null) {
-      this.deleteNextStructure();
-    }
+    this.deleteNextStructure();
     this.maybeAttack();
   }
 
@@ -116,39 +97,8 @@ export class TribeExecution implements Execution {
     if (this.attackBehavior === null) {
       throw new Error("not initialized");
     }
-
-    // A vassal's founder is a hard gameplay relationship rather than a normal
-    // diplomatic preference. If some other execution has temporarily broken
-    // that alliance, do not choose any attack target until the permanent
-    // vassal-alliance execution restores it.
-    if (this.protectedPlayerID !== null) {
-      const protectedPlayer = this.mg.hasPlayer(this.protectedPlayerID)
-        ? this.mg.player(this.protectedPlayerID)
-        : null;
-      if (
-        protectedPlayer !== null &&
-        !this.tribe.isAlliedWith(protectedPlayer)
-      ) {
-        return;
-      }
-
-      // Founder defense takes priority over normal tribe expansion/aggression.
-      // If the vassal cannot launch a land/boat attack against the aggressor,
-      // it instead sends only troops that are genuinely spare after reserving
-      // enough strength for its own hostile borders and active attackers.
-      if (
-        protectedPlayer !== null &&
-        this.defendProtectedPlayer(protectedPlayer)
-      ) {
-        return;
-      }
-    }
-
     const toAttack = this.attackBehavior.getNeighborTraitorToAttack();
-    if (
-      toAttack !== null &&
-      toAttack.id() !== this.protectedPlayerID
-    ) {
+    if (toAttack !== null) {
       const odds = this.tribe.isFriendly(toAttack) ? 6 : 3;
       if (this.random.chance(odds)) {
         // Check and break alliance before attacking if needed
@@ -171,113 +121,6 @@ export class TribeExecution implements Execution {
     }
 
     this.attackBehavior.attackRandomTarget();
-  }
-
-  /**
-   * Protect the vassal's founder from their current largest attacker.
-   *
-   * Returns true whenever the founder is under attack, even if the vassal is
-   * too threatened to act. This deliberately suppresses unrelated aggression
-   * while the founder is in danger.
-   */
-  private defendProtectedPlayer(founder: Player): boolean {
-    if (this.attackBehavior === null) {
-      throw new Error("not initialized");
-    }
-
-    let largestAttackTroops = 0;
-    let totalIncomingTroops = 0;
-    let attacker: Player | null = null;
-
-    for (const attack of founder.incomingAttacks()) {
-      const candidate = attack.attacker();
-      if (candidate === this.tribe || candidate === founder) continue;
-
-      totalIncomingTroops += attack.troops();
-      if (attack.troops() > largestAttackTroops) {
-        largestAttackTroops = attack.troops();
-        attacker = candidate;
-      }
-    }
-
-    if (attacker === null) return false;
-
-    // Defending the founder overrides the vassal's ordinary diplomacy. If the
-    // aggressor happens to be allied with the vassal, end that alliance before
-    // trying to retaliate; AttackExecution correctly blocks friendly attacks.
-    const alliance = this.tribe.allianceWith(attacker);
-    if (alliance !== null) {
-      this.tribe.breakAlliance(alliance);
-    }
-
-    if (this.attackBehavior.sendAttack(attacker, true)) {
-      return true;
-    }
-
-    this.sendDefensiveTroopAid(founder, totalIncomingTroops);
-    return true;
-  }
-
-  private sendDefensiveTroopAid(
-    founder: Player,
-    founderIncomingTroops: number,
-  ): boolean {
-    if (!founder.isAlive() || !this.tribe.isFriendly(founder)) return false;
-    if (
-      this.mg.ticks() - this.lastProtectedPlayerAidTick <
-      this.mg.config().donateCooldown()
-    ) {
-      return false;
-    }
-
-    const maxTroops = this.mg.config().maxTroops(this.tribe);
-    const baselineReserve = maxTroops * this.reserveRatio;
-
-    // A vassal never strips troops needed to hold an actual hostile land
-    // border. Retain at least the full troop count of the strongest enemy that
-    // currently shares a border with the vassal.
-    let strongestBorderEnemy = 0;
-    for (const neighbor of this.tribe.nearby()) {
-      if (!neighbor.isPlayer()) continue;
-      if (this.tribe.isFriendly(neighbor)) continue;
-      if (!this.tribe.sharesBorderWith(neighbor)) continue;
-      strongestBorderEnemy = Math.max(
-        strongestBorderEnemy,
-        neighbor.troops(),
-      );
-    }
-
-    const incomingToVassal = this.tribe
-      .incomingAttacks()
-      .filter((attack) => !this.tribe.isFriendly(attack.attacker()))
-      .reduce((sum, attack) => sum + attack.troops(), 0);
-
-    const defensiveReserve = Math.max(
-      baselineReserve,
-      strongestBorderEnemy,
-      incomingToVassal,
-    );
-    const spareTroops = Math.floor(this.tribe.troops() - defensiveReserve);
-    const founderCapacity = Math.max(
-      0,
-      this.mg.config().maxTroops(founder) - founder.troops(),
-    );
-    const troopsToSend = Math.min(
-      spareTroops,
-      Math.ceil(founderIncomingTroops),
-      founderCapacity,
-    );
-
-    if (troopsToSend < 1) return false;
-
-    // Vassal reinforcement is part of the vassal relationship, not a manual
-    // donation. Use the normal low-level transfer so it still produces the
-    // standard donation update, but do not make it depend on the lobby's
-    // player-to-player donation toggle. We enforce the same cooldown above.
-    if (!this.tribe.donateTroops(founder, troopsToSend)) return false;
-
-    this.lastProtectedPlayerAidTick = this.mg.ticks();
-    return true;
   }
 
   isActive(): boolean {
