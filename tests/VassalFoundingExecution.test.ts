@@ -72,6 +72,31 @@ describe("Vassal Estate", () => {
     return vassal!;
   }
 
+  function foundDevelopableVassal(): Player {
+    const centerX = 20;
+    const centerY = 30;
+    const radius = 20;
+    const radiusSquared = radius * radius;
+
+    // Give the founder a realistic compact Estate-sized patch so the vassal
+    // receives enough land to place economic structures after founding.
+    for (let y = centerY - radius; y <= centerY + radius; y++) {
+      for (let x = centerX - radius; x <= centerX + radius; x++) {
+        if (!game.isValidCoord(x, y)) continue;
+        const dx = x - centerX;
+        const dy = y - centerY;
+        if (dx * dx + dy * dy > radiusSquared) continue;
+        const tile = game.ref(x, y);
+        if (!game.isLand(tile) || game.isImpassable(tile)) continue;
+        founder.conquer(tile);
+      }
+    }
+
+    const vassal = foundVassal(game.ref(centerX, centerY));
+    vassal.addGold(10_000_000n);
+    return vassal;
+  }
+
   function addProtectedTestVassal(): Player {
     const vassalInfo = new PlayerInfo(
       makeVassalDisplayName(founder.displayName()),
@@ -152,6 +177,19 @@ describe("Vassal Estate", () => {
     ).toBe(true);
   });
 
+  test("vassal alliances are non-expiring", () => {
+    const vassal = foundVassal();
+    const alliance = founder.allianceWith(vassal);
+    expect(alliance).not.toBeNull();
+    expect(alliance!.expiresAt()).toBe(Number.MAX_SAFE_INTEGER);
+
+    // Extension requests are ignored for vassal alliances so the normal
+    // expiring-alliance warning/renewal lifecycle never starts.
+    alliance!.addExtensionRequest(founder);
+    expect(alliance!.onlyOneAgreedToExtend()).toBe(false);
+    expect(alliance!.expiresAt()).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
   test("founder-vassal alliance is restored after a manual break", () => {
     const vassal = foundVassal();
     const alliance = founder.allianceWith(vassal);
@@ -164,6 +202,9 @@ describe("Vassal Estate", () => {
 
     expect(founder.isAlliedWith(vassal)).toBe(true);
     expect(vassal.isAlliedWith(founder)).toBe(true);
+    expect(founder.allianceWith(vassal)!.expiresAt()).toBe(
+      Number.MAX_SAFE_INTEGER,
+    );
   });
 
   test("vassal alliances mirror the founder's alliances", () => {
@@ -175,6 +216,7 @@ describe("Vassal Estate", () => {
 
     game.executeNextTick();
     expect(vassal.isAlliedWith(ally)).toBe(true);
+    expect(vassal.allianceWith(ally)!.expiresAt()).toBe(Number.MAX_SAFE_INTEGER);
 
     founder.allianceWith(ally)!.expire();
     expect(founder.isAlliedWith(ally)).toBe(false);
@@ -228,6 +270,21 @@ describe("Vassal Estate", () => {
     ).toHaveLength(0);
     expect(game.owner(center)).toBe(founder);
     expect(founder.units(UnitType.City)).toHaveLength(1);
+  });
+
+  test("funded compact vassal bootstraps economic development", () => {
+    const vassal = foundDevelopableVassal();
+    expect(vassal.units(UnitType.City)).toHaveLength(1);
+    expect(vassal.units(UnitType.Factory)).toHaveLength(0);
+
+    // The VassalNationExecution added by founding initializes on the next tick
+    // and should immediately queue a Factory rather than getting stuck trying
+    // to fit a second City inside the radius-20 starting estate.
+    for (let i = 0; i < 5; i++) {
+      game.executeNextTick();
+    }
+
+    expect(vassal.units(UnitType.Factory).length).toBeGreaterThan(0);
   });
 
   test("vassal retaliation prioritizes the founder's attacker", () => {
