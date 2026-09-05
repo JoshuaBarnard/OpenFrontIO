@@ -45,6 +45,15 @@ describe("Vassal Estate", () => {
     founder = game.player(founderInfo.id);
     neighbor = game.player(neighborInfo.id);
     ally = game.player(allyInfo.id);
+
+    // Diplomacy APIs intentionally reject eliminated players. Keep all three
+    // human fixtures alive on territory outside the Estate's radius so these
+    // tests model a real in-game founder, ally and neighbor. In particular,
+    // the Estate must not transfer the founder's final tile and silently make
+    // subsequent alliance tests operate on a dead player.
+    founder.conquer(game.ref(30, 10));
+    neighbor.conquer(game.ref(31, 10));
+    ally.conquer(game.ref(32, 10));
   });
 
   function foundVassal(center = game.ref(0, 10)): Player {
