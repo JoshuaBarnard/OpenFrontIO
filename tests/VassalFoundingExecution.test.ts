@@ -1,4 +1,5 @@
 import { ConstructionExecution } from "../src/core/execution/ConstructionExecution";
+import { TribeExecution } from "../src/core/execution/TribeExecution";
 import {
   Game,
   Player,
@@ -35,6 +36,35 @@ describe("Vassal Estate", () => {
     founder = game.player(founderInfo.id);
     neighbor = game.player(neighborInfo.id);
   });
+
+  function addProtectedTestVassal(): Player {
+    const vassalInfo = new PlayerInfo(
+      "Test Vassal",
+      PlayerType.Bot,
+      null,
+      "test-vassal",
+    );
+    game.addPlayer(vassalInfo);
+    const vassal = game.player(vassalInfo.id);
+
+    founder.conquer(game.ref(5, 10));
+    vassal.conquer(game.ref(10, 10));
+
+    const request = founder.createAllianceRequest(vassal);
+    request?.accept();
+    expect(founder.isAlliedWith(vassal)).toBe(true);
+
+    return vassal;
+  }
+
+  function mockFounderAttack(troops: number) {
+    return vi.spyOn(founder, "incomingAttacks").mockReturnValue([
+      {
+        attacker: () => neighbor,
+        troops: () => troops,
+      } as any,
+    ]);
+  }
 
   test("completed estate creates an allied bot from founder-owned territory", () => {
     const center = game.ref(0, 10);
@@ -119,5 +149,76 @@ describe("Vassal Estate", () => {
     ).toHaveLength(0);
     expect(game.owner(center)).toBe(founder);
     expect(founder.units(UnitType.City)).toHaveLength(1);
+  });
+
+  test("vassal retaliation prioritizes the founder's attacker", () => {
+    const vassal = addProtectedTestVassal();
+    const execution = new TribeExecution(vassal, founder.id());
+    execution.init(game);
+
+    const sendAttack = vi.fn().mockReturnValue(true);
+    (execution as any).attackBehavior = { sendAttack };
+    const incomingSpy = mockFounderAttack(2_000);
+
+    expect((execution as any).defendProtectedPlayer(founder)).toBe(true);
+    expect(sendAttack).toHaveBeenCalledWith(neighbor, true);
+
+    incomingSpy.mockRestore();
+  });
+
+  test("unreachable vassal can reinforce founder even when normal donations are disabled", () => {
+    const vassal = addProtectedTestVassal();
+    const execution = new TribeExecution(vassal, founder.id());
+    execution.init(game);
+
+    // The test setup leaves donateTroops disabled. Founder defense is a vassal
+    // mechanic, so it deliberately uses the low-level transfer instead of the
+    // optional manual-donation action.
+    expect(game.config().gameConfig().donateTroops).toBe(false);
+
+    const maxVassalTroops = game.config().maxTroops(vassal);
+    const maxFounderTroops = game.config().maxTroops(founder);
+    vassal.setTroops(maxVassalTroops);
+    founder.setTroops(Math.floor(maxFounderTroops / 2));
+
+    const sendAttack = vi.fn().mockReturnValue(false);
+    (execution as any).attackBehavior = { sendAttack };
+    const incomingSpy = mockFounderAttack(1_000);
+    const donateSpy = vi.spyOn(vassal, "donateTroops");
+
+    expect((execution as any).defendProtectedPlayer(founder)).toBe(true);
+    expect(sendAttack).toHaveBeenCalledWith(neighbor, true);
+    expect(donateSpy).toHaveBeenCalledWith(
+      founder,
+      expect.any(Number),
+    );
+    expect(donateSpy.mock.calls[0][1]).toBeGreaterThan(0);
+
+    donateSpy.mockRestore();
+    incomingSpy.mockRestore();
+  });
+
+  test("vassal keeps enough troops to match its strongest hostile border", () => {
+    const vassal = addProtectedTestVassal();
+
+    // Move the hostile neighbor onto a direct border with the vassal.
+    neighbor.conquer(game.ref(11, 10));
+    const maxVassalTroops = game.config().maxTroops(vassal);
+    vassal.setTroops(maxVassalTroops);
+    neighbor.setTroops(maxVassalTroops);
+    founder.setTroops(Math.floor(game.config().maxTroops(founder) / 2));
+
+    const execution = new TribeExecution(vassal, founder.id());
+    execution.init(game);
+    const sendAttack = vi.fn().mockReturnValue(false);
+    (execution as any).attackBehavior = { sendAttack };
+    const incomingSpy = mockFounderAttack(1_000);
+    const donateSpy = vi.spyOn(vassal, "donateTroops");
+
+    expect((execution as any).defendProtectedPlayer(founder)).toBe(true);
+    expect(donateSpy).not.toHaveBeenCalled();
+
+    donateSpy.mockRestore();
+    incomingSpy.mockRestore();
   });
 });
