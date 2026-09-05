@@ -28,7 +28,10 @@ import { GameMapLoader } from "./game/GameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "./game/GameUpdates";
 import { createNationsForGame } from "./game/NationCreation";
 import { loadTerrainMap as loadGameMap } from "./game/TerrainMapLoader";
-import { isVassalPlayerID } from "./game/Vassal";
+import {
+  isVassalPlayerID,
+  vassalOwnerIDFromPlayerID,
+} from "./game/Vassal";
 import { PseudoRandom } from "./PseudoRandom";
 import { ClientID, GameStartInfo, Turn } from "./Schemas";
 import { simpleHash } from "./Util";
@@ -172,10 +175,6 @@ export class GameRunner {
       return false;
     }
 
-    // Track whether placements were recomputed this tick — the record is
-    // only attached to the update when it could have changed, so the main
-    // thread doesn't structured-clone an identical ~all-players record on
-    // every other tick.
     let viewDataChanged = false;
     if (this.game.inSpawnPhase()) {
       for (const p of this.game.players()) {
@@ -258,12 +257,19 @@ export class GameRunner {
 
     if (tile !== null && this.game.hasOwner(tile)) {
       const other = this.game.owner(tile) as Player;
+      const vassalOwnerID = vassalOwnerIDFromPlayerID(other.id());
       const targetIsVassal = isVassalPlayerID(other.id());
+      const diplomacyTarget =
+        vassalOwnerID !== null && this.game.hasPlayer(vassalOwnerID)
+          ? this.game.player(vassalOwnerID)
+          : other;
       actions.interaction = {
         sharedBorder: player.sharesBorderWith(other),
         canSendEmoji: player.canSendEmoji(other),
         canTarget: player.canTarget(other),
-        canSendAllianceRequest: player.canSendAllianceRequest(other),
+        canSendAllianceRequest:
+          diplomacyTarget !== player &&
+          player.canSendAllianceRequest(diplomacyTarget),
         canBreakAlliance: !targetIsVassal && player.isAlliedWith(other),
         canDonateGold: player.canDonateGold(other),
         canDonateTroops: player.canDonateTroops(other),
@@ -288,8 +294,6 @@ export class GameRunner {
       throw new Error(`player with id ${playerID} not found`);
     }
     return {
-      // Copy into a plain Set: this result crosses the worker boundary via
-      // structured clone, which TileSet does not survive.
       borderTiles: new Set(player.borderTiles()),
     } as PlayerBorderTiles;
   }
