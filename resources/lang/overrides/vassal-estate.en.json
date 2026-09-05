@@ -3,7 +3,7 @@
     "alliance_redirect_message": "This is a vassal owned by {name}. Its diplomacy is managed by its owner. Would you like to send {name} an alliance request?",
     "diplomacy_title": "Vassal diplomacy",
     "estate": "Vassal Estate",
-    "estate_desc": "Creates a nation vassal from nearby territory. Vassals build their own structures, mirror your alliances, defend you when attacked, and can send troops when they cannot reach your attacker.",
+    "estate_desc": "Creates a nation vassal from nearby territory. Vassals build and expand on their own, mirror your alliances, defend you when attacked, and can send troops when they cannot reach your attacker.",
     "no": "No",
     "owner_chip": "{name}'s Vassal",
     "owner_fallback": "the vassal's owner",
