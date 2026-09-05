@@ -233,13 +233,14 @@ export class TribeExecution implements Execution {
     const maxTroops = this.mg.config().maxTroops(this.tribe);
     const baselineReserve = maxTroops * this.reserveRatio;
 
-    // Keep extra troops when a hostile player borders/is immediately nearby.
-    // This prevents a vassal from donating itself into an easy conquest just
-    // because its founder is fighting elsewhere.
+    // A vassal never strips troops needed to hold an actual hostile land
+    // border. Retain at least the full troop count of the strongest enemy that
+    // currently shares a border with the vassal.
     let strongestBorderEnemy = 0;
     for (const neighbor of this.tribe.nearby()) {
       if (!neighbor.isPlayer()) continue;
       if (this.tribe.isFriendly(neighbor)) continue;
+      if (!this.tribe.sharesBorderWith(neighbor)) continue;
       strongestBorderEnemy = Math.max(
         strongestBorderEnemy,
         neighbor.troops(),
@@ -253,7 +254,7 @@ export class TribeExecution implements Execution {
 
     const defensiveReserve = Math.max(
       baselineReserve,
-      strongestBorderEnemy * 0.8,
+      strongestBorderEnemy,
       incomingToVassal,
     );
     const spareTroops = Math.floor(this.tribe.troops() - defensiveReserve);
