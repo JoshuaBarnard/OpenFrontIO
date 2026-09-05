@@ -6,6 +6,7 @@ import { ConstructionExecution } from "./ConstructionExecution";
 import { NationEmojiBehavior } from "./nation/NationEmojiBehavior";
 import { NationStructureBehavior } from "./nation/NationStructureBehavior";
 import { randTerritoryTileArray } from "./nation/NationUtils";
+import { closestTwoTiles } from "./Util";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 
 /**
@@ -305,17 +306,14 @@ export class VassalNationExecution implements Execution {
   private maybeAttack(): void {
     if (this.attackBehavior === null) return;
 
-    const traitor = this.attackBehavior.getNeighborTraitorToAttack();
-    if (traitor !== null && traitor.id() !== this.founderID) {
-      if (
-        !areDiplomaticallyFriendly(this.mg, this.vassal, traitor) &&
-        this.random.chance(3)
-      ) {
-        if (this.attackBehavior.sendAttack(traitor)) return;
-      }
-    }
+    // A direct attack on the vassal itself is the most immediate local threat.
+    // Even when the vassal cannot counterattack yet, treat the decision as
+    // handled so it does not spend troops on an unrelated distant war instead.
+    if (this.defendSelf()) return;
 
-    // Unclaimed land is the safest expansion and remains the first choice.
+    // Unclaimed land is safe growth. It can improve the vassal's economy and
+    // troop ceiling without starting a remote war, so keep it ahead of
+    // proactive attacks when it is locally available.
     if (this.neighborsTerraNullius) {
       if (this.vassal.nearby().some((neighbor) => !neighbor.isPlayer())) {
         if (this.attackBehavior.sendAttack(this.mg.terraNullius())) return;
@@ -324,41 +322,167 @@ export class VassalNationExecution implements Execution {
       }
     }
 
-    // Once neutral expansion cannot be launched, actively seek territory from
-    // realms that are not friendly with the owner. Shared-border enemies are
-    // tried first, then other hostile players; sendAttack can use transport
-    // ships for the latter when a route exists. Reserve/strength checks remain
-    // inside AiAttackBehavior, so this does not make vassals suicidal.
-    if (this.attackOwnerHostileRealm()) return;
-
-    this.attackBehavior.attackRandomTarget();
+    // Hostile-player wars are proximity driven. The method returns true both
+    // when an attack was launched and when a nearby threat exists but the
+    // vassal is intentionally building troops for it.
+    this.attackOwnerHostileRealm();
   }
 
+  private defendSelf(): boolean {
+    if (this.attackBehavior === null) return false;
+
+    let attacker: Player | null = null;
+    let largestAttack = 0;
+    for (const attack of this.vassal.incomingAttacks()) {
+      const candidate = attack.attacker();
+      if (areDiplomaticallyFriendly(this.mg, this.vassal, candidate)) continue;
+      if (attack.troops() <= largestAttack) continue;
+      largestAttack = attack.troops();
+      attacker = candidate;
+    }
+
+    if (attacker === null) return false;
+
+    this.attackBehavior.sendAttack(attacker, true);
+    return true;
+  }
+
+  /**
+   * Pick a strategic war target by geography rather than global weakness.
+   *
+   * 1. Land-border and `nearby()` hostiles are the local theatre. The vassal
+   *    will only fight inside that theatre while any such enemy exists.
+   * 2. If local enemies are currently too strong, it keeps its troops and lets
+   *    normal growth/structure AI raise its strength instead of boating across
+   *    the world to find an easier victim.
+   * 3. With no local enemies, only a small distance band around the nearest
+   *    hostile realms is considered. This keeps overseas wars regional.
+   */
   private attackOwnerHostileRealm(): boolean {
     if (this.attackBehavior === null) return false;
 
     const hostile = this.mg.players().filter(
       (candidate) =>
+        candidate.isAlive() &&
         candidate !== this.vassal &&
         candidate.id() !== this.founderID &&
         !areDiplomaticallyFriendly(this.mg, this.vassal, candidate),
     );
     if (hostile.length === 0) return false;
 
-    const bordering = hostile.filter((candidate) =>
-      this.vassal.sharesBorderWith(candidate),
+    const nearbyPlayers = new Set(
+      this.vassal
+        .nearby()
+        .filter(
+          (candidate): candidate is Player =>
+            candidate.isPlayer() &&
+            candidate.isAlive() &&
+            candidate.id() !== this.founderID &&
+            !areDiplomaticallyFriendly(this.mg, this.vassal, candidate),
+        ),
     );
-    const borderingSet = new Set(bordering);
-    const distant = hostile.filter((candidate) => !borderingSet.has(candidate));
-    const candidates = [
-      ...this.random.shuffleArray(bordering),
-      ...this.random.shuffleArray(distant),
-    ];
 
-    for (const candidate of candidates) {
-      if (this.attackBehavior.sendAttack(candidate)) return true;
+    const ranked = hostile
+      .map((player) => {
+        const bordering = this.vassal.sharesBorderWith(player);
+        return {
+          player,
+          bordering,
+          local: bordering || nearbyPlayers.has(player),
+          distance: this.distanceToRealm(player),
+        };
+      })
+      .filter((entry) => Number.isFinite(entry.distance))
+      .sort((a, b) => {
+        if (a.bordering !== b.bordering) return a.bordering ? -1 : 1;
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        // At the same distance, take the more achievable local expansion first.
+        return a.player.troops() - b.player.troops();
+      });
+
+    if (ranked.length === 0) return true;
+
+    const local = ranked.filter((entry) => entry.local);
+    if (local.length > 0) {
+      for (const entry of local) {
+        if (!this.isStrategicallyReady(entry.player, true)) continue;
+        if (this.attackBehavior.sendAttack(entry.player, true)) return true;
+      }
+
+      // A local hostile exists but is not yet a sensible attack. Hold the
+      // strategic reserve and keep developing until the balance improves.
+      return true;
     }
-    return false;
+
+    const nearestDistance = ranked[0].distance;
+    const distanceBand = Math.max(40, Math.floor(nearestDistance * 0.35));
+    const regional = ranked
+      .filter((entry) => entry.distance <= nearestDistance + distanceBand)
+      .slice(0, 4);
+
+    for (const entry of regional) {
+      // Remote wars should be opportunistic, not desperate. Unlike a local
+      // threat, a distant opponent that is too strong is simply not worth a
+      // transport expedition yet.
+      if (!this.isStrategicallyReady(entry.player, false)) continue;
+      if (this.attackBehavior.sendAttack(entry.player, true)) return true;
+    }
+
+    // There are hostile realms, but none in the nearest regional band are a
+    // sensible/reachable target right now. Wait rather than falling back to the
+    // old random-global targeting and crossing the map for a weak player.
+    return true;
+  }
+
+  private distanceToRealm(target: Player): number {
+    if (this.vassal.sharesBorderWith(target)) return 0;
+
+    const closest = closestTwoTiles(
+      this.mg,
+      this.vassal.borderTiles(),
+      target.borderTiles(),
+    );
+    if (closest === null) return Number.POSITIVE_INFINITY;
+    return this.mg.manhattanDist(closest.x, closest.y);
+  }
+
+  /**
+   * Decide whether a proactive war is worth committing troops to yet.
+   *
+   * Local threats are allowed to force the issue once the vassal is near its
+   * troop ceiling, even when the neighbour is stronger. Distant targets do not
+   * get that exception: if the expeditionary force would be obviously weak,
+   * the vassal keeps building instead.
+   */
+  private isStrategicallyReady(target: Player, local: boolean): boolean {
+    const maxTroops = Math.max(1, this.mg.config().maxTroops(this.vassal));
+    const ownTroops = this.vassal.troops();
+    if (ownTroops < maxTroops * this.triggerRatio) return false;
+
+    const bordering = this.vassal.sharesBorderWith(target);
+    const reserveTroops = maxTroops * this.reserveRatio;
+    const availableForce = bordering
+      ? Math.max(0, ownTroops - reserveTroops)
+      : ownTroops / 5;
+    const maxAvailableForce = bordering
+      ? Math.max(1, maxTroops - reserveTroops)
+      : Math.max(1, maxTroops / 5);
+
+    // Land wars can commit most troops above the reserve. Boat attacks only
+    // carry about one fifth of current troops, so require a smaller fraction of
+    // the target while still refusing wildly underpowered remote expeditions.
+    const desiredTargetFraction = bordering ? 0.5 : 0.25;
+    if (availableForce >= target.troops() * desiredTargetFraction) return true;
+
+    if (!local) return false;
+
+    // A powerful neighbour must not send the vassal searching for a weaker
+    // opponent elsewhere. Once the vassal has filled roughly its whole troop
+    // pool, let normal AiAttackBehavior make the final reserve/attack-size call.
+    return (
+      ownTroops >= maxTroops * 0.9 &&
+      availableForce >= maxAvailableForce * 0.85
+    );
   }
 
   isActive(): boolean {
