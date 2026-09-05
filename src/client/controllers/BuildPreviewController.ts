@@ -34,7 +34,7 @@ import {
   BuildUnitIntentEvent,
   SendUpgradeStructureIntentEvent,
 } from "../Transport";
-import { UIState } from "../UIState";
+import { UIState, VASSAL_ESTATE_GHOST } from "../UIState";
 import { GameView } from "../view";
 
 /** True for nuke types (AtomBomb, HydrogenBomb): ghost is preserved after placement so user can place multiple or keep selection (Enter/key confirm). */
@@ -189,15 +189,17 @@ export class BuildPreviewController implements Controller {
    */
   private syncGhostState(): void {
     const target = this.uiState.ghostStructure;
+    const targetUnitType =
+      target === VASSAL_ESTATE_GHOST ? UnitType.City : target;
     if (this.ghostUnit) {
-      if (target === null) {
+      if (targetUnitType === null) {
         this.removeGhostStructure();
-      } else if (target !== this.ghostUnit.buildableUnit.type) {
+      } else if (targetUnitType !== this.ghostUnit.buildableUnit.type) {
         this.clearGhostStructure();
-        this.createGhostStructure(target);
+        this.createGhostStructure(targetUnitType);
       }
-    } else if (target !== null) {
-      this.createGhostStructure(target);
+    } else if (targetUnitType !== null) {
+      this.createGhostStructure(targetUnitType);
     }
   }
 
@@ -278,7 +280,10 @@ export class BuildPreviewController implements Controller {
           return;
         }
 
-        this.ghostUnit.buildableUnit = unit;
+        this.ghostUnit.buildableUnit =
+          this.uiState.ghostStructure === VASSAL_ESTATE_GHOST
+            ? { ...unit, canUpgrade: false }
+            : unit;
 
         if (this.pendingConfirm !== null) {
           const ev = this.pendingConfirm;
@@ -532,7 +537,12 @@ export class BuildPreviewController implements Controller {
       return;
     }
     const tile = this.transformHandler.screenToWorldCoordinates(e.x, e.y);
-    if (this.ghostUnit.buildableUnit.canUpgrade !== false) {
+    const isVassalEstate =
+      this.uiState.ghostStructure === VASSAL_ESTATE_GHOST;
+    if (
+      !isVassalEstate &&
+      this.ghostUnit.buildableUnit.canUpgrade !== false
+    ) {
       this.eventBus.emit(
         new SendUpgradeStructureIntentEvent(
           this.ghostUnit.buildableUnit.canUpgrade,
@@ -551,9 +561,11 @@ export class BuildPreviewController implements Controller {
 
       const isNuke = unitType === UnitType.AtomBomb;
       const rocketDirectionUp =
-        unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb
-          ? this.uiState.rocketDirectionUp
-          : undefined;
+        isVassalEstate && unitType === UnitType.City
+          ? true
+          : unitType === UnitType.AtomBomb || unitType === UnitType.HydrogenBomb
+            ? this.uiState.rocketDirectionUp
+            : undefined;
       this.eventBus.emit(
         new BuildUnitIntentEvent(
           unitType,
