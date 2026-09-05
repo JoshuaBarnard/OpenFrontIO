@@ -84,6 +84,18 @@ describe("Vassal diplomacy and expansion", () => {
     return vassal;
   }
 
+  function addHostileNation(
+    id: string,
+    name: string,
+    x: number,
+    y: number,
+  ): Player {
+    const info = new PlayerInfo(name, PlayerType.Nation, null, id);
+    const player = game.addPlayer(info);
+    player.conquer(game.ref(x, y));
+    return player;
+  }
+
   test("owner ally cannot attack a vassal before alliance mirroring ticks", () => {
     const vassal = foundVassal();
 
@@ -142,6 +154,10 @@ describe("Vassal diplomacy and expansion", () => {
     expect(founder.isAlliedWith(ally)).toBe(true);
     expect(vassal.isAlliedWith(ally)).toBe(false);
 
+    const maxTroops = game.config().maxTroops(vassal);
+    vassal.setTroops(maxTroops);
+    neighbor.setTroops(Math.floor(maxTroops / 2));
+
     const execution = new VassalNationExecution(vassal, founder.id());
     execution.init(game);
 
@@ -151,6 +167,79 @@ describe("Vassal diplomacy and expansion", () => {
     expect((execution as any).attackOwnerHostileRealm()).toBe(true);
     expect(sendAttack).toHaveBeenCalled();
     expect(sendAttack.mock.calls[0][0]).toBe(neighbor);
-    expect(sendAttack).not.toHaveBeenCalledWith(ally);
+    expect(sendAttack.mock.calls[0][1]).toBe(true);
+    expect(sendAttack).not.toHaveBeenCalledWith(ally, expect.anything());
+  });
+
+  test("strong local enemy makes vassal build up instead of attacking far away", () => {
+    const vassal = addProtectedTestVassal();
+    neighbor.conquer(game.ref(11, 10));
+    const farEnemy = addHostileNation("far-enemy", "Far Enemy", 28, 20);
+
+    const maxTroops = game.config().maxTroops(vassal);
+    vassal.setTroops(Math.floor(maxTroops * 0.6));
+    neighbor.setTroops(maxTroops);
+    farEnemy.setTroops(1);
+
+    const execution = new VassalNationExecution(vassal, founder.id());
+    execution.init(game);
+
+    const sendAttack = vi.fn().mockReturnValue(true);
+    (execution as any).attackBehavior = { sendAttack };
+
+    // The weak far enemy would be an easy target, but the bordering threat is
+    // strategically more important. The vassal should hold its troops until it
+    // is ready for the local fight instead of launching a remote expedition.
+    expect((execution as any).attackOwnerHostileRealm()).toBe(true);
+    expect(sendAttack).not.toHaveBeenCalled();
+  });
+
+  test("after building up vassal attacks local threat before distant enemy", () => {
+    const vassal = addProtectedTestVassal();
+    neighbor.conquer(game.ref(11, 10));
+    const farEnemy = addHostileNation("far-enemy", "Far Enemy", 28, 20);
+
+    const maxTroops = game.config().maxTroops(vassal);
+    vassal.setTroops(maxTroops);
+    neighbor.setTroops(Math.floor(maxTroops * 0.8));
+    farEnemy.setTroops(1);
+
+    const execution = new VassalNationExecution(vassal, founder.id());
+    execution.init(game);
+
+    const sendAttack = vi.fn().mockReturnValue(true);
+    (execution as any).attackBehavior = { sendAttack };
+
+    expect((execution as any).attackOwnerHostileRealm()).toBe(true);
+    expect(sendAttack).toHaveBeenCalledTimes(1);
+    expect(sendAttack.mock.calls[0][0]).toBe(neighbor);
+    expect(sendAttack.mock.calls[0][1]).toBe(true);
+  });
+
+  test("with no local threat vassal considers nearest hostile realm first", () => {
+    const vassal = addProtectedTestVassal();
+    const fartherEnemy = addHostileNation(
+      "farther-enemy",
+      "Farther Enemy",
+      28,
+      20,
+    );
+
+    const maxTroops = game.config().maxTroops(vassal);
+    vassal.setTroops(maxTroops);
+    neighbor.setTroops(1);
+    fartherEnemy.setTroops(1);
+
+    const execution = new VassalNationExecution(vassal, founder.id());
+    execution.init(game);
+
+    const sendAttack = vi.fn().mockReturnValue(true);
+    (execution as any).attackBehavior = { sendAttack };
+
+    expect((execution as any).attackOwnerHostileRealm()).toBe(true);
+    expect(sendAttack).toHaveBeenCalledTimes(1);
+    // Neighbor owns (32,10), which is closer to the vassal at (10,10) than
+    // the extra hostile at (28,20). The old implementation shuffled both.
+    expect(sendAttack.mock.calls[0][0]).toBe(neighbor);
   });
 });
