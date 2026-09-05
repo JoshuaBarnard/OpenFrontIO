@@ -161,7 +161,9 @@ describe("Vassal diplomacy and expansion", () => {
     const execution = new VassalNationExecution(vassal, founder.id());
     execution.init(game);
 
-    const sendAttack = vi.fn((target: Player) => target === neighbor);
+    const sendAttack = vi.fn(
+      (target: Player, _force: boolean = false) => target === neighbor,
+    );
     (execution as any).attackBehavior = { sendAttack };
 
     expect((execution as any).attackOwnerHostileRealm()).toBe(true);
