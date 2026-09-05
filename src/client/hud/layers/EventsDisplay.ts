@@ -285,7 +285,10 @@ export class EventsDisplay extends LitElement implements Controller {
     }
 
     let description: string = event.message;
-    if (event.message.startsWith("events_display.")) {
+    if (
+      event.message.startsWith("events_display.") ||
+      event.message.startsWith("vassal.")
+    ) {
       description = translateText(event.message, this.resolveParams(event));
     }
 
