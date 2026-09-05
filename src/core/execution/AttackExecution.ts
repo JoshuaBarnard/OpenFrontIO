@@ -207,7 +207,7 @@ export class AttackExecution implements Execution {
     // points at the aggressor so clicking the event takes the owner straight
     // to the threat.
     this.mg.displayMessage(
-      "events_display.vassal_under_attack",
+      "vassal.under_attack",
       MessageType.ATTACK_REQUEST,
       owner.id(),
       undefined,
