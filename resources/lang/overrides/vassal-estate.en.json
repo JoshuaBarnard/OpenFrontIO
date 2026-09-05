@@ -1,8 +1,16 @@
 {
   "build_menu": {
     "desc": {
-      "vassal_estate": "Creates an allied vassal from nearby territory. Vassals defend you when attacked and can send troops when they cannot reach your attacker."
+      "vassal_estate": "Creates a nation vassal from nearby territory. Vassals build their own structures, mirror your alliances, defend you when attacked, and can send troops when they cannot reach your attacker."
     },
     "vassal_estate": "Vassal Estate"
+  },
+  "vassal": {
+    "alliance_redirect_message": "This is a vassal owned by {name}. Its diplomacy is managed by its owner. Would you like to send {name} an alliance request?",
+    "diplomacy_title": "Vassal diplomacy",
+    "no": "No",
+    "owner_chip": "{name}'s Vassal",
+    "owner_fallback": "the vassal's owner",
+    "yes": "Yes"
   }
 }
