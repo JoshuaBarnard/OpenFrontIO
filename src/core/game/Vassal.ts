@@ -1,4 +1,4 @@
-import type { PlayerID } from "./Game";
+import type { Game, Player, PlayerID } from "./Game";
 
 const VASSAL_PREFIX = "vassal-";
 const VASSAL_NAME_SUFFIX = "'s Vassal";
@@ -34,6 +34,42 @@ export function vassalOwnerIDFromPlayerID(
 
 export function isVassalPlayerID(playerID: PlayerID): boolean {
   return vassalOwnerIDFromPlayerID(playerID) !== null;
+}
+
+/**
+ * Resolve the player whose diplomacy governs this realm. Normal players and
+ * nations govern themselves; a vassal is governed by its recorded owner.
+ */
+export function vassalDiplomaticPrincipal(
+  game: Pick<Game, "hasPlayer" | "player">,
+  player: Player,
+): Player {
+  const ownerID = vassalOwnerIDFromPlayerID(player.id());
+  if (ownerID === null || !game.hasPlayer(ownerID)) return player;
+  return game.player(ownerID);
+}
+
+/**
+ * Friendship for combat/diplomacy purposes, including vassal ownership.
+ *
+ * Direct friendship is checked first so team/alliance state still behaves
+ * normally. If either side is a vassal, their owner is then used as the
+ * diplomatic principal. This closes the one-tick gap before mirrored vassal
+ * alliances have been materialized by VassalAllianceExecution.
+ */
+export function areDiplomaticallyFriendly(
+  game: Pick<Game, "hasPlayer" | "player">,
+  first: Player,
+  second: Player,
+): boolean {
+  if (first.isFriendly(second)) return true;
+
+  const firstPrincipal = vassalDiplomaticPrincipal(game, first);
+  const secondPrincipal = vassalDiplomaticPrincipal(game, second);
+  return (
+    firstPrincipal === secondPrincipal ||
+    firstPrincipal.isFriendly(secondPrincipal)
+  );
 }
 
 export function makeVassalDisplayName(ownerName: string): string {
