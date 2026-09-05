@@ -29,6 +29,7 @@ import { ErrorUpdate, GameUpdateViewData } from "./game/GameUpdates";
 import { createNationsForGame } from "./game/NationCreation";
 import { loadTerrainMap as loadGameMap } from "./game/TerrainMapLoader";
 import {
+  areDiplomaticallyFriendly,
   isVassalPlayerID,
   vassalOwnerIDFromPlayerID,
 } from "./game/Vassal";
@@ -263,10 +264,24 @@ export class GameRunner {
         vassalOwnerID !== null && this.game.hasPlayer(vassalOwnerID)
           ? this.game.player(vassalOwnerID)
           : other;
+      const ownerLevelFriendly = areDiplomaticallyFriendly(
+        this.game,
+        player,
+        other,
+      );
+
+      // Do not even present attack/target actions during the short interval
+      // before VassalAllianceExecution has materialized a newly-created owner
+      // alliance on the vassal itself. AttackExecution enforces the same rule.
+      if (targetIsVassal && ownerLevelFriendly) {
+        actions.canAttack = false;
+      }
+
       actions.interaction = {
         sharedBorder: player.sharesBorderWith(other),
         canSendEmoji: player.canSendEmoji(other),
-        canTarget: player.canTarget(other),
+        canTarget:
+          !(targetIsVassal && ownerLevelFriendly) && player.canTarget(other),
         canSendAllianceRequest:
           diplomacyTarget !== player &&
           player.canSendAllianceRequest(diplomacyTarget),
