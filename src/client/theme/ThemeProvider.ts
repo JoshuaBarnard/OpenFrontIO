@@ -1,5 +1,6 @@
 import { Colord, colord, LabaColor } from "colord";
 import { PlayerType, Team } from "../../core/game/Game";
+import { vassalOwnerIDFromPlayerID } from "../../core/game/Vassal";
 import { UserSettings } from "../../core/game/UserSettings";
 import { simpleHash } from "../../core/Util";
 import { PALETTE_NAMES } from "../render/gl/GraphicsOverrides";
@@ -142,6 +143,21 @@ export class SettingsTheme implements Theme {
    */
   territoryColor(player: PlayerView): Colord {
     const team = player.team();
+    const vassalOwnerID = vassalOwnerIDFromPlayerID(player.id());
+
+    if (vassalOwnerID !== null) {
+      // A vassal should read visually as part of its owner's realm while still
+      // remaining distinguishable on the map. Reuse the owner's stable base
+      // color and shift lightness slightly instead of allocating a Nation color.
+      const ownerColor =
+        team !== null
+          ? this.teamColorForPlayer(team, vassalOwnerID)
+          : this.humanColorAllocator.assignColor(vassalOwnerID);
+      return ownerColor.toHsl().l > 55
+        ? ownerColor.darken(0.08)
+        : ownerColor.lighten(0.08);
+    }
+
     if (team !== null) {
       return this.teamColorForPlayer(team, player.id());
     }
