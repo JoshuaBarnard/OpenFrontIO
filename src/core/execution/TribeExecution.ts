@@ -9,7 +9,6 @@ import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
 import { DeleteUnitExecution } from "./DeleteUnitExecution";
-import { DonateTroopsExecution } from "./DonateTroopExecution";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 
 export class TribeExecution implements Execution {
@@ -17,6 +16,7 @@ export class TribeExecution implements Execution {
   private random: PseudoRandom;
   private mg: Game;
   private neighborsTerraNullius = true;
+  private lastProtectedPlayerAidTick = -Infinity;
 
   private attackBehavior: AiAttackBehavior | null = null;
   private attackRate: number;
@@ -222,7 +222,13 @@ export class TribeExecution implements Execution {
     founder: Player,
     founderIncomingTroops: number,
   ): boolean {
-    if (!this.tribe.canDonateTroops(founder)) return false;
+    if (!founder.isAlive() || !this.tribe.isFriendly(founder)) return false;
+    if (
+      this.mg.ticks() - this.lastProtectedPlayerAidTick <
+      this.mg.config().donateCooldown()
+    ) {
+      return false;
+    }
 
     const maxTroops = this.mg.config().maxTroops(this.tribe);
     const baselineReserve = maxTroops * this.reserveRatio;
@@ -242,6 +248,7 @@ export class TribeExecution implements Execution {
 
     const incomingToVassal = this.tribe
       .incomingAttacks()
+      .filter((attack) => !this.tribe.isFriendly(attack.attacker()))
       .reduce((sum, attack) => sum + attack.troops(), 0);
 
     const defensiveReserve = Math.max(
@@ -250,16 +257,25 @@ export class TribeExecution implements Execution {
       incomingToVassal,
     );
     const spareTroops = Math.floor(this.tribe.troops() - defensiveReserve);
+    const founderCapacity = Math.max(
+      0,
+      this.mg.config().maxTroops(founder) - founder.troops(),
+    );
     const troopsToSend = Math.min(
       spareTroops,
       Math.ceil(founderIncomingTroops),
+      founderCapacity,
     );
 
     if (troopsToSend < 1) return false;
 
-    this.mg.addExecution(
-      new DonateTroopsExecution(this.tribe, founder.id(), troopsToSend),
-    );
+    // Vassal reinforcement is part of the vassal relationship, not a manual
+    // donation. Use the normal low-level transfer so it still produces the
+    // standard donation update, but do not make it depend on the lobby's
+    // player-to-player donation toggle. We enforce the same cooldown above.
+    if (!this.tribe.donateTroops(founder, troopsToSend)) return false;
+
+    this.lastProtectedPlayerAidTick = this.mg.ticks();
     return true;
   }
 
