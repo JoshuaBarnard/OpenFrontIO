@@ -1,5 +1,6 @@
 import { html, LitElement } from "lit";
 import { customElement } from "lit/decorators.js";
+import { assetUrl } from "../../../core/AssetUrls";
 import { EventBus } from "../../../core/EventBus";
 import {
   BuildableUnit,
@@ -11,7 +12,11 @@ import {
 import { UserSettings } from "../../../core/game/UserSettings";
 import { Controller } from "../../Controller";
 import { ToggleStructureEvent } from "../../InputHandler";
-import { UIState } from "../../UIState";
+import {
+  GhostStructureType,
+  UIState,
+  VASSAL_ESTATE_GHOST,
+} from "../../UIState";
 import { renderNumber, translateText } from "../../Utils";
 import { GameView } from "../../view";
 import {
@@ -28,6 +33,8 @@ import {
   warshipIcon,
 } from "../HotbarIcons";
 
+const vassalEstateIcon = assetUrl("images/AllianceIconWhite.svg");
+
 @customElement("unit-display")
 export class UnitDisplay extends LitElement implements Controller {
   public game: GameView;
@@ -43,7 +50,7 @@ export class UnitDisplay extends LitElement implements Controller {
   private _defensePost = 0;
   private _samLauncher = 0;
   private allDisabled = false;
-  private _hoveredUnit: PlayerBuildableUnitType | null = null;
+  private _hoveredUnit: GhostStructureType | null = null;
 
   createRenderRoot() {
     return this;
@@ -130,6 +137,15 @@ export class UnitDisplay extends LitElement implements Controller {
             this.keybinds["buildCity"]?.key ?? "1",
           )}
           ${this.renderUnitItem(
+            vassalEstateIcon,
+            null,
+            UnitType.City,
+            "vassal_estate",
+            "",
+            VASSAL_ESTATE_GHOST,
+            "build_menu.vassal_estate",
+          )}
+          ${this.renderUnitItem(
             factoryIcon,
             this._factories,
             UnitType.Factory,
@@ -203,12 +219,14 @@ export class UnitDisplay extends LitElement implements Controller {
     unitType: PlayerBuildableUnitType,
     structureKey: string,
     hotkey: string,
+    ghostStructure: GhostStructureType = unitType,
+    nameKey: string = "unit_type." + structureKey,
   ) {
     if (this.game.config().isUnitDisabled(unitType)) {
       return html``;
     }
-    const selected = this.uiState.ghostStructure === unitType;
-    const hovered = this._hoveredUnit === unitType;
+    const selected = this.uiState.ghostStructure === ghostStructure;
+    const hovered = this._hoveredUnit === ghostStructure;
     const displayHotkey = hotkey
       .replace("Digit", "")
       .replace("Key", "")
@@ -218,7 +236,7 @@ export class UnitDisplay extends LitElement implements Controller {
       <div
         class="flex flex-col items-center relative"
         @mouseenter=${() => {
-          this._hoveredUnit = unitType;
+          this._hoveredUnit = ghostStructure;
           this.requestUpdate();
         }}
         @mouseleave=${() => {
@@ -232,9 +250,9 @@ export class UnitDisplay extends LitElement implements Controller {
                 class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-gray-200 text-center w-max text-xs bg-gray-800/90 backdrop-blur-xs rounded-sm p-1 z-[100] shadow-lg pointer-events-none"
               >
                 <div class="font-bold text-sm mb-1">
-                  ${translateText(
-                    "unit_type." + structureKey,
-                  )}${` [${displayHotkey}]`}
+                  ${translateText(nameKey)}${displayHotkey
+                    ? ` [${displayHotkey}]`
+                    : ""}
                 </div>
                 <div class="p-2">
                   ${translateText("build_menu.desc." + structureKey)}
@@ -265,7 +283,7 @@ export class UnitDisplay extends LitElement implements Controller {
             if (selected) {
               this.uiState.ghostStructure = null;
             } else if (this.canBuild(unitType)) {
-              this.uiState.ghostStructure = unitType;
+              this.uiState.ghostStructure = ghostStructure;
             }
             this.requestUpdate();
           }}
@@ -290,9 +308,13 @@ export class UnitDisplay extends LitElement implements Controller {
           @mouseleave=${() =>
             this.eventBus?.emit(new ToggleStructureEvent(null))}
         >
-          ${html`<div class="ml-0.5 text-[10px] relative -top-1 text-gray-400">
-            ${displayHotkey}
-          </div>`}
+          ${displayHotkey
+            ? html`<div
+                class="ml-0.5 text-[10px] relative -top-1 text-gray-400"
+              >
+                ${displayHotkey}
+              </div>`
+            : null}
           <div class="flex items-center gap-0.5 pt-0.5">
             <img src=${icon} alt=${structureKey} class="align-middle size-5" />
             ${number !== null
