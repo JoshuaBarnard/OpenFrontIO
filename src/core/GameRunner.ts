@@ -28,6 +28,7 @@ import { GameMapLoader } from "./game/GameMapLoader";
 import { ErrorUpdate, GameUpdateViewData } from "./game/GameUpdates";
 import { createNationsForGame } from "./game/NationCreation";
 import { loadTerrainMap as loadGameMap } from "./game/TerrainMapLoader";
+import { isVassalPlayerID } from "./game/Vassal";
 import { PseudoRandom } from "./PseudoRandom";
 import { ClientID, GameStartInfo, Turn } from "./Schemas";
 import { simpleHash } from "./Util";
@@ -257,12 +258,13 @@ export class GameRunner {
 
     if (tile !== null && this.game.hasOwner(tile)) {
       const other = this.game.owner(tile) as Player;
+      const targetIsVassal = isVassalPlayerID(other.id());
       actions.interaction = {
         sharedBorder: player.sharesBorderWith(other),
         canSendEmoji: player.canSendEmoji(other),
         canTarget: player.canTarget(other),
         canSendAllianceRequest: player.canSendAllianceRequest(other),
-        canBreakAlliance: player.isAlliedWith(other),
+        canBreakAlliance: !targetIsVassal && player.isAlliedWith(other),
         canDonateGold: player.canDonateGold(other),
         canDonateTroops: player.canDonateTroops(other),
         canEmbargo: !player.hasEmbargoAgainst(other),
