@@ -47,7 +47,7 @@ export async function sendAllianceRequestWithVassalRedirect(
 
   const ownerRecipient = {
     id: () => ownerID,
-  } as PlayerView;
+  } as unknown as PlayerView;
   eventBus.emit(new SendAllianceRequestIntentEvent(requestor, ownerRecipient));
   return true;
 }
