@@ -1,4 +1,10 @@
-﻿import { Execution, Game, Player, Structures } from "../game/Game";
+import {
+  Execution,
+  Game,
+  Player,
+  PlayerID,
+  Structures,
+} from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
 import { AllianceExtensionExecution } from "./alliance/AllianceExtensionExecution";
@@ -18,7 +24,10 @@ export class TribeExecution implements Execution {
   private reserveRatio: number;
   private expandRatio: number;
 
-  constructor(private tribe: Player) {
+  constructor(
+    private tribe: Player,
+    private protectedPlayerID: PlayerID | null = null,
+  ) {
     this.random = new PseudoRandom(simpleHash(tribe.id()));
     this.attackRate = this.random.nextInt(40, 80);
     this.attackTick = this.random.nextInt(0, this.attackRate);
@@ -60,7 +69,9 @@ export class TribeExecution implements Execution {
     }
 
     this.acceptAllAllianceRequests();
-    this.deleteNextStructure();
+    if (this.protectedPlayerID === null) {
+      this.deleteNextStructure();
+    }
     this.maybeAttack();
   }
 
@@ -97,8 +108,28 @@ export class TribeExecution implements Execution {
     if (this.attackBehavior === null) {
       throw new Error("not initialized");
     }
+
+    // A vassal's founder is a hard gameplay relationship rather than a normal
+    // diplomatic preference. If some other execution has temporarily broken
+    // that alliance, do not choose any attack target until the permanent
+    // vassal-alliance execution restores it.
+    if (this.protectedPlayerID !== null) {
+      const protectedPlayer = this.mg.hasPlayer(this.protectedPlayerID)
+        ? this.mg.player(this.protectedPlayerID)
+        : null;
+      if (
+        protectedPlayer !== null &&
+        !this.tribe.isAlliedWith(protectedPlayer)
+      ) {
+        return;
+      }
+    }
+
     const toAttack = this.attackBehavior.getNeighborTraitorToAttack();
-    if (toAttack !== null) {
+    if (
+      toAttack !== null &&
+      toAttack.id() !== this.protectedPlayerID
+    ) {
       const odds = this.tribe.isFriendly(toAttack) ? 6 : 3;
       if (this.random.chance(odds)) {
         // Check and break alliance before attacking if needed
