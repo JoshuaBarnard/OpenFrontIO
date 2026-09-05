@@ -1,4 +1,7 @@
 {
+  "events_display": {
+    "vassal_under_attack": "Your vassal {vassal} is under attack by {name}!"
+  },
   "vassal": {
     "alliance_redirect_message": "This is a vassal owned by {name}. Its diplomacy is managed by its owner. Would you like to send {name} an alliance request?",
     "diplomacy_title": "Vassal diplomacy",
