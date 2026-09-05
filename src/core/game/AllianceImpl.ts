@@ -1,4 +1,5 @@
 import { Game, MutableAlliance, Player, Tick } from "./Game";
+import { vassalOwnerIDFromPlayerID } from "./Vassal";
 import { GameUpdateType } from "./GameUpdates";
 
 export class AllianceImpl implements MutableAlliance {
@@ -14,7 +15,16 @@ export class AllianceImpl implements MutableAlliance {
     private readonly createdAt_: Tick,
     private readonly id_: number,
   ) {
-    this.expiresAt_ = createdAt_ + mg.config().allianceDuration();
+    this.expiresAt_ = this.isVassalAlliance()
+      ? Number.MAX_SAFE_INTEGER
+      : createdAt_ + mg.config().allianceDuration();
+  }
+
+  private isVassalAlliance(): boolean {
+    return (
+      vassalOwnerIDFromPlayerID(this.requestor_.id()) !== null ||
+      vassalOwnerIDFromPlayerID(this.recipient_.id()) !== null
+    );
   }
 
   other(player: Player): Player {
@@ -41,6 +51,9 @@ export class AllianceImpl implements MutableAlliance {
   }
 
   addExtensionRequest(player: Player): void {
+    if (this.isVassalAlliance()) {
+      return;
+    }
     if (this.requestor_ === player) {
       this.extensionRequestedRequestor_ = true;
     } else if (this.recipient_ === player) {
@@ -82,7 +95,9 @@ export class AllianceImpl implements MutableAlliance {
   extend(): void {
     this.extensionRequestedRequestor_ = false;
     this.extensionRequestedRecipient_ = false;
-    this.expiresAt_ = this.mg.ticks() + this.mg.config().allianceDuration();
+    this.expiresAt_ = this.isVassalAlliance()
+      ? Number.MAX_SAFE_INTEGER
+      : this.mg.ticks() + this.mg.config().allianceDuration();
   }
 
   expiresAt(): Tick {
