@@ -1,6 +1,7 @@
 import { Execution, Game, Player, PlayerID } from "../game/Game";
 import { PseudoRandom } from "../PseudoRandom";
 import { simpleHash } from "../Util";
+import { NationEmojiBehavior } from "./nation/NationEmojiBehavior";
 import { NationStructureBehavior } from "./nation/NationStructureBehavior";
 import { AiAttackBehavior } from "./utils/AiAttackBehavior";
 
@@ -17,6 +18,7 @@ export class VassalNationExecution implements Execution {
   private mg: Game;
   private random: PseudoRandom;
   private attackBehavior: AiAttackBehavior | null = null;
+  private emojiBehavior: NationEmojiBehavior | null = null;
   private structureBehavior: NationStructureBehavior | null = null;
   private neighborsTerraNullius = true;
   private lastFounderAidTick = -Infinity;
@@ -49,7 +51,21 @@ export class VassalNationExecution implements Execution {
       return;
     }
 
-    if (this.attackBehavior === null || this.structureBehavior === null) {
+    if (
+      this.attackBehavior === null ||
+      this.emojiBehavior === null ||
+      this.structureBehavior === null
+    ) {
+      // AiAttackBehavior treats Nation players specially and requires a
+      // NationEmojiBehavior before it can calculate/send attacks against other
+      // players. Normal NationExecution wires this dependency in; vassals must
+      // do the same even though their alliance behavior is intentionally owned
+      // by VassalAllianceExecution instead.
+      this.emojiBehavior = new NationEmojiBehavior(
+        this.random,
+        this.mg,
+        this.vassal,
+      );
       this.attackBehavior = new AiAttackBehavior(
         this.random,
         this.mg,
@@ -57,6 +73,8 @@ export class VassalNationExecution implements Execution {
         this.triggerRatio,
         this.reserveRatio,
         this.expandRatio,
+        undefined,
+        this.emojiBehavior,
       );
       this.structureBehavior = new NationStructureBehavior(
         this.random,
