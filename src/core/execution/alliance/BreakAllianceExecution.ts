@@ -1,4 +1,5 @@
 import { Execution, Game, Player, PlayerID } from "../../game/Game";
+import { vassalOwnerIDFromPlayerID } from "../../game/Vassal";
 
 export class BreakAllianceExecution implements Execution {
   private active = true;
@@ -11,6 +12,17 @@ export class BreakAllianceExecution implements Execution {
   ) {}
 
   init(mg: Game, ticks: number): void {
+    // A vassal cannot change diplomacy itself, and another player cannot break
+    // only the mirrored vassal half of an owner's alliance. The owner alliance
+    // must be changed instead; VassalAllianceExecution mirrors that result.
+    if (
+      vassalOwnerIDFromPlayerID(this.requestor.id()) !== null ||
+      vassalOwnerIDFromPlayerID(this.recipientID) !== null
+    ) {
+      this.active = false;
+      return;
+    }
+
     if (!mg.hasPlayer(this.recipientID)) {
       console.warn(
         `BreakAllianceExecution: recipient ${this.recipientID} not found`,
@@ -23,6 +35,7 @@ export class BreakAllianceExecution implements Execution {
   }
 
   tick(ticks: number): void {
+    if (!this.active) return;
     if (
       this.mg === null ||
       this.requestor === null ||
